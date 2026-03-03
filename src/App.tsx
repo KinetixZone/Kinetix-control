@@ -22,7 +22,8 @@ import {
   LogOut,
   MessageCircle,
   Fingerprint,
-  ShoppingBag
+  ShoppingBag,
+  Lock
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
@@ -63,6 +64,9 @@ export default function App() {
   const [showAddExpense, setShowAddExpense] = useState(false);
   const [showAddInventory, setShowAddInventory] = useState(false);
   const [showMakeSale, setShowMakeSale] = useState(false);
+  const [showChangePin, setShowChangePin] = useState(false);
+  const [pinForm, setPinForm] = useState({ currentPin: '', newPin: '', confirmPin: '' });
+  const [pinStatus, setPinStatus] = useState({ message: '', type: '' });
   const [isEditing, setIsEditing] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
@@ -101,6 +105,21 @@ export default function App() {
       fetchData();
     }
   }, []);
+
+  useEffect(() => {
+    if (isLoggedIn) {
+      const channel = supabase
+        .channel('db-changes')
+        .on('postgres_changes', { event: '*', schema: 'public' }, () => {
+          fetchData();
+        })
+        .subscribe();
+
+      return () => {
+        supabase.removeChannel(channel);
+      };
+    }
+  }, [isLoggedIn]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -488,6 +507,47 @@ export default function App() {
     }
   };
 
+  const handleChangePin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setPinStatus({ message: '', type: '' });
+
+    if (pinForm.newPin !== pinForm.confirmPin) {
+      setPinStatus({ message: 'Los PINs nuevos no coinciden', type: 'error' });
+      return;
+    }
+
+    try {
+      const userData = JSON.parse(localStorage.getItem('kinetix_user') || '{}');
+      const { data: user, error: fetchError } = await supabase
+        .from('users')
+        .select('*')
+        .eq('username', userData.username)
+        .eq('pin', pinForm.currentPin)
+        .single();
+
+      if (fetchError || !user) {
+        setPinStatus({ message: 'PIN actual incorrecto', type: 'error' });
+        return;
+      }
+
+      const { error: updateError } = await supabase
+        .from('users')
+        .update({ pin: pinForm.newPin })
+        .eq('id', user.id);
+
+      if (updateError) throw updateError;
+
+      setPinStatus({ message: 'PIN actualizado con éxito', type: 'success' });
+      setPinForm({ currentPin: '', newPin: '', confirmPin: '' });
+      setTimeout(() => {
+        setShowChangePin(false);
+        setPinStatus({ message: '', type: '' });
+      }, 2000);
+    } catch (error) {
+      setPinStatus({ message: 'Error al actualizar PIN', type: 'error' });
+    }
+  };
+
   const filteredMembers = members.filter(m => 
     m.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
     m.phone.includes(searchTerm)
@@ -686,6 +746,13 @@ export default function App() {
         </div>
 
         <div className="mt-auto pt-6 border-t border-slate-100">
+          <button 
+            onClick={() => { setShowChangePin(true); setIsMobileMenuOpen(false); }}
+            className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-slate-500 hover:bg-slate-50 transition-all mb-2"
+          >
+            <Lock size={20} />
+            <span className="font-medium">Cambiar PIN</span>
+          </button>
           <div className="p-4 bg-slate-50 rounded-2xl">
             <div className="flex items-center gap-3 mb-3">
               <div className="w-8 h-8 bg-slate-200 rounded-full flex items-center justify-center text-slate-600">
@@ -1917,6 +1984,82 @@ export default function App() {
                     className="flex-1 px-4 py-2 bg-emerald-600 text-white rounded-xl font-medium hover:bg-emerald-700 shadow-sm"
                   >
                     Confirmar Venta
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+
+        {showChangePin && (
+          <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white rounded-3xl w-full max-w-md p-8 shadow-2xl relative"
+            >
+              <button 
+                onClick={() => setShowChangePin(false)}
+                className="absolute right-6 top-6 text-slate-400 hover:text-slate-600"
+              >
+                <X size={24} />
+              </button>
+              <h3 className="text-2xl font-bold mb-6">Cambiar PIN de Seguridad</h3>
+              <form onSubmit={handleChangePin} className="space-y-4">
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">PIN Actual</label>
+                  <input 
+                    required
+                    type="password"
+                    maxLength={4}
+                    className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500/20 outline-none text-center text-2xl tracking-widest"
+                    value={pinForm.currentPin}
+                    onChange={e => setPinForm({ ...pinForm, currentPin: e.target.value.replace(/\D/g, '') })}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">Nuevo PIN (4 dígitos)</label>
+                  <input 
+                    required
+                    type="password"
+                    maxLength={4}
+                    className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500/20 outline-none text-center text-2xl tracking-widest"
+                    value={pinForm.newPin}
+                    onChange={e => setPinForm({ ...pinForm, newPin: e.target.value.replace(/\D/g, '') })}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">Confirmar Nuevo PIN</label>
+                  <input 
+                    required
+                    type="password"
+                    maxLength={4}
+                    className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500/20 outline-none text-center text-2xl tracking-widest"
+                    value={pinForm.confirmPin}
+                    onChange={e => setPinForm({ ...pinForm, confirmPin: e.target.value.replace(/\D/g, '') })}
+                  />
+                </div>
+                
+                {pinStatus.message && (
+                  <div className={`p-3 rounded-xl text-sm font-medium ${pinStatus.type === 'error' ? 'bg-rose-50 text-rose-600' : 'bg-emerald-50 text-emerald-600'}`}>
+                    {pinStatus.message}
+                  </div>
+                )}
+
+                <div className="flex gap-3 mt-6">
+                  <button 
+                    type="button"
+                    onClick={() => setShowChangePin(false)}
+                    className="flex-1 px-4 py-2 border border-slate-200 rounded-xl font-medium hover:bg-slate-50"
+                  >
+                    Cancelar
+                  </button>
+                  <button 
+                    type="submit"
+                    className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-xl font-medium hover:bg-blue-700 shadow-sm"
+                  >
+                    Actualizar PIN
                   </button>
                 </div>
               </form>
