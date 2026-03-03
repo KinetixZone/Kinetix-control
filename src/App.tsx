@@ -1,0 +1,1812 @@
+import React, { useState, useEffect } from 'react';
+import { 
+  Users, 
+  CreditCard, 
+  Plus, 
+  Search, 
+  Calendar, 
+  UserPlus, 
+  CheckCircle2, 
+  AlertCircle,
+  Clock,
+  Gift,
+  User,
+  TrendingDown,
+  TrendingUp,
+  DollarSign,
+  ShieldCheck,
+  BarChart3,
+  Menu,
+  X,
+  ChevronRight,
+  LogOut,
+  MessageCircle,
+  Fingerprint,
+  ShoppingBag
+} from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
+import { 
+  BarChart, 
+  Bar, 
+  XAxis, 
+  YAxis, 
+  CartesianGrid, 
+  Tooltip, 
+  Legend, 
+  ResponsiveContainer,
+  Cell,
+  PieChart,
+  Pie
+} from 'recharts';
+import { Member, Payment, Expense, FinancialStats, InventoryItem } from './types';
+
+type Role = 'Leslie' | 'Jorge' | 'Staff';
+
+export default function App() {
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [loginForm, setLoginForm] = useState({ username: 'Leslie', pin: '' });
+  const [loginError, setLoginError] = useState('');
+
+  const [members, setMembers] = useState<Member[]>([]);
+  const [payments, setPayments] = useState<Payment[]>([]);
+  const [expenses, setExpenses] = useState<Expense[]>([]);
+  const [inventory, setInventory] = useState<InventoryItem[]>([]);
+  const [attendance, setAttendance] = useState<any[]>([]);
+  const [paymentAlerts, setPaymentAlerts] = useState<any[]>([]);
+  const [birthdayAlerts, setBirthdayAlerts] = useState<any[]>([]);
+  const [financialStats, setFinancialStats] = useState<FinancialStats>({ total_income: 0, total_expenses: 0, profit: 0 });
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'members' | 'payments' | 'expenses' | 'analytics' | 'attendance' | 'inventory'>('dashboard');
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [showAddMember, setShowAddMember] = useState(false);
+  const [showAddPayment, setShowAddPayment] = useState(false);
+  const [showAddExpense, setShowAddExpense] = useState(false);
+  const [showAddInventory, setShowAddInventory] = useState(false);
+  const [showMakeSale, setShowMakeSale] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [paymentSearchTerm, setPaymentSearchTerm] = useState('');
+  const [paymentMonthFilter, setPaymentMonthFilter] = useState('');
+  const [selectedMember, setSelectedMember] = useState<Member | null>(null);
+  const [currentRole, setCurrentRole] = useState<Role>('Leslie');
+  const [errorMsg, setErrorMsg] = useState('');
+
+  // Form states
+  const [newMember, setNewMember] = useState({ name: '', phone: '', email: '', birth_date: '' });
+  const [newPayment, setNewPayment] = useState({
+    member_id: 0,
+    amount: 500,
+    payment_type: 'monthly' as 'monthly' | 'visit',
+    discount_type: 'none' as 'birthday' | 'other' | 'none',
+    discount_amount: 0,
+    received_by: '',
+    months: 1
+  });
+  const [newExpense, setNewExpense] = useState({
+    description: '',
+    amount: 0,
+    category: 'other',
+    created_by: ''
+  });
+  const [newInventory, setNewInventory] = useState({ name: '', price: 0, stock: 0, category: 'drinks' });
+  const [newSale, setNewSale] = useState({ item_id: 0, quantity: 1, total_price: 0 });
+
+  useEffect(() => {
+    const savedUser = localStorage.getItem('kinetix_user');
+    if (savedUser) {
+      const user = JSON.parse(savedUser);
+      setCurrentRole(user.role);
+      setIsLoggedIn(true);
+      fetchData();
+    }
+  }, []);
+
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      const res = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(loginForm)
+      });
+      const data = await res.json();
+      if (data.success) {
+        localStorage.setItem('kinetix_user', JSON.stringify({ username: data.username, role: data.role }));
+        setCurrentRole(data.role);
+        setIsLoggedIn(true);
+        setLoginError('');
+        fetchData();
+      } else {
+        setLoginError(data.error);
+      }
+    } catch (error) {
+      setLoginError('Error de conexión');
+    }
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem('kinetix_user');
+    setIsLoggedIn(false);
+  };
+
+  const fetchData = async () => {
+    try {
+      const [membersRes, paymentsRes, expensesRes, statsRes, attendanceRes, alertsRes, birthdaysRes, inventoryRes] = await Promise.all([
+        fetch('/api/members'),
+        fetch('/api/payments'),
+        fetch('/api/expenses'),
+        fetch('/api/stats/financial'),
+        fetch('/api/attendance/today'),
+        fetch('/api/alerts/payments'),
+        fetch('/api/alerts/birthdays'),
+        fetch('/api/inventory')
+      ]);
+      setMembers(await membersRes.json());
+      setPayments(await paymentsRes.json());
+      setExpenses(await expensesRes.json());
+      setFinancialStats(await statsRes.json());
+      setAttendance(await attendanceRes.json());
+      setPaymentAlerts(await alertsRes.json());
+      setBirthdayAlerts(await birthdaysRes.json());
+      setInventory(await inventoryRes.json());
+    } catch (error) {
+      console.error('Error fetching data:', error);
+    }
+  };
+
+  const handleCheckIn = async (memberId: number) => {
+    try {
+      await fetch('/api/attendance', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ member_id: memberId })
+      });
+      fetchData();
+    } catch (error) {
+      console.error('Error during check-in:', error);
+    }
+  };
+
+  const sendWhatsAppReminder = (member: Member) => {
+    const daysLeft = member.last_expiry 
+      ? Math.ceil((new Date(member.last_expiry).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24))
+      : 0;
+    
+    let message = `Hola ${member.name}, te saludamos de Kinetix Functional Zone. `;
+    if (daysLeft < 0) {
+      message += `Te recordamos que tu mensualidad venció hace ${Math.abs(daysLeft)} días. ¡Te esperamos para renovar!`;
+    } else if (daysLeft === 0) {
+      message += `Hoy vence tu mensualidad. ¡Te esperamos para entrenar!`;
+    } else {
+      message += `Te recordamos que tu mensualidad vence en ${daysLeft} días.`;
+    }
+
+    const url = `https://wa.me/${member.phone?.replace(/\D/g, '')}?text=${encodeURIComponent(message)}`;
+    window.open(url, '_blank');
+  };
+
+  const exportAttendanceToCSV = () => {
+    const headers = ['ID', 'Miembro', 'Hora de Entrada'];
+    const rows = attendance.map(a => [
+      a.id,
+      a.name,
+      new Date(a.check_in_time).toLocaleTimeString()
+    ]);
+
+    const csvContent = [
+      headers.join(','),
+      ...rows.map(r => r.join(','))
+    ].join('\n');
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    link.setAttribute('href', url);
+    link.setAttribute('download', `asistencia_kinetix_${new Date().toISOString().slice(0, 10)}.csv`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+  const exportPaymentsToCSV = (filteredData?: Payment[]) => {
+    const dataToExport = filteredData || payments;
+    const headers = ['ID', 'Miembro', 'Monto', 'Tipo', 'Fecha', 'Recibido Por'];
+    const rows = dataToExport.map(p => [
+      p.id,
+      p.member_name,
+      p.amount,
+      p.payment_type,
+      new Date(p.payment_date!).toLocaleDateString(),
+      p.received_by
+    ]);
+
+    const csvContent = [
+      headers.join(','),
+      ...rows.map(r => r.join(','))
+    ].join('\n');
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    link.setAttribute('href', url);
+    link.setAttribute('download', `pagos_kinetix_${new Date().toISOString().slice(0, 10)}.csv`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const handleAddMember = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setErrorMsg('');
+    try {
+      const method = isEditing ? 'PUT' : 'POST';
+      const url = isEditing ? `/api/members/${editingId}` : '/api/members';
+      
+      const res = await fetch(url, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newMember)
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setErrorMsg(data.error);
+        return;
+      }
+      setNewMember({ name: '', phone: '', email: '', birth_date: '' });
+      setShowAddMember(false);
+      setIsEditing(false);
+      setEditingId(null);
+      fetchData();
+    } catch (error) {
+      setErrorMsg('Error al conectar con el servidor');
+    }
+  };
+
+  const handleEditMember = (member: Member) => {
+    setNewMember({
+      name: member.name,
+      phone: member.phone || '',
+      email: member.email || '',
+      birth_date: member.birth_date || ''
+    });
+    setIsEditing(true);
+    setEditingId(member.id);
+    setShowAddMember(true);
+  };
+
+  const handleAddPayment = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      const baseAmount = newPayment.amount;
+      const discount = newPayment.discount_type === 'birthday' ? baseAmount * 0.5 : newPayment.discount_amount;
+      
+      await fetch('/api/payments', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...newPayment,
+          amount: baseAmount - discount,
+          discount_amount: discount,
+          received_by: newPayment.received_by || currentRole
+        })
+      });
+      setShowAddPayment(false);
+      setSelectedMember(null);
+      fetchData();
+    } catch (error) {
+      console.error('Error adding payment:', error);
+    }
+  };
+
+  const handleAddExpense = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      const method = isEditing ? 'PUT' : 'POST';
+      const url = isEditing ? `/api/expenses/${editingId}` : '/api/expenses';
+
+      await fetch(url, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...newExpense,
+          created_by: currentRole
+        })
+      });
+      setNewExpense({ description: '', amount: 0, category: 'other', created_by: '' });
+      setShowAddExpense(false);
+      setIsEditing(false);
+      setEditingId(null);
+      fetchData();
+    } catch (error) {
+      console.error('Error adding expense:', error);
+    }
+  };
+
+  const handleEditExpense = (expense: Expense) => {
+    setNewExpense({
+      description: expense.description,
+      amount: expense.amount,
+      category: expense.category,
+      created_by: expense.created_by
+    });
+    setIsEditing(true);
+    setEditingId(expense.id);
+    setShowAddExpense(true);
+  };
+
+  const handleAddInventory = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      const method = isEditing ? 'PUT' : 'POST';
+      const url = isEditing ? `/api/inventory/${editingId}` : '/api/inventory';
+      await fetch(url, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newInventory)
+      });
+      setNewInventory({ name: '', price: 0, stock: 0, category: 'drinks' });
+      setShowAddInventory(false);
+      setIsEditing(false);
+      setEditingId(null);
+      fetchData();
+    } catch (error) {
+      console.error('Error saving inventory item');
+    }
+  };
+
+  const handleMakeSale = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      await fetch('/api/sales', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newSale)
+      });
+      setNewSale({ item_id: 0, quantity: 1, total_price: 0 });
+      setShowMakeSale(false);
+      fetchData();
+    } catch (error) {
+      console.error('Error making sale');
+    }
+  };
+
+  const filteredMembers = members.filter(m => 
+    m.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    m.phone.includes(searchTerm)
+  );
+
+  const isExpired = (dateStr: string | null) => {
+    if (!dateStr) return true;
+    return new Date(dateStr) < new Date();
+  };
+
+  const getStatusColor = (expiry: string | null) => {
+    if (!expiry) return 'bg-gray-100 text-gray-500';
+    if (isExpired(expiry)) return 'bg-red-100 text-red-600';
+    return 'bg-green-100 text-green-600';
+  };
+
+  const filteredPayments = payments.filter(p => {
+    const matchesSearch = p.member_name.toLowerCase().includes(paymentSearchTerm.toLowerCase());
+    const matchesMonth = paymentMonthFilter ? p.payment_date?.startsWith(paymentMonthFilter) : true;
+    return matchesSearch && matchesMonth;
+  });
+
+  if (!isLoggedIn) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
+        <motion.div 
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="bg-white p-8 rounded-3xl shadow-xl border border-slate-100 w-full max-w-md"
+        >
+          <div className="flex flex-col items-center mb-8">
+            <div className="w-16 h-16 bg-indigo-600 rounded-2xl flex items-center justify-center text-white mb-4 shadow-lg shadow-indigo-200">
+              <ShieldCheck size={32} />
+            </div>
+            <h1 className="text-2xl font-bold text-slate-900">Kinetix Functional Zone</h1>
+            <p className="text-slate-500 text-sm">Acceso Administrativo</p>
+          </div>
+
+          <form onSubmit={handleLogin} className="space-y-6">
+            <div>
+              <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Usuario</label>
+              <select 
+                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all"
+                value={loginForm.username}
+                onChange={(e) => setLoginForm({ ...loginForm, username: e.target.value })}
+              >
+                <option value="Leslie">Leslie (Super Admin)</option>
+                <option value="Jorge">Jorge (Admin)</option>
+                <option value="Staff">Profe (Staff)</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">PIN de Acceso</label>
+              <input 
+                type="password"
+                maxLength={4}
+                placeholder="••••"
+                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-center text-2xl tracking-[1em] focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all"
+                value={loginForm.pin}
+                onChange={(e) => setLoginForm({ ...loginForm, pin: e.target.value })}
+                required
+              />
+            </div>
+
+            {loginError && (
+              <div className="bg-rose-50 text-rose-600 p-3 rounded-xl text-sm flex items-center gap-2">
+                <AlertCircle size={16} />
+                {loginError}
+              </div>
+            )}
+
+            <button 
+              type="submit"
+              className="w-full bg-indigo-600 text-white py-4 rounded-xl font-bold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100"
+            >
+              Entrar al Sistema
+            </button>
+          </form>
+
+          <div className="mt-8 pt-6 border-t border-slate-100 text-center">
+            <p className="text-[10px] text-slate-400 uppercase tracking-widest font-bold">Control de Pagos v2.0</p>
+          </div>
+        </motion.div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-slate-50 text-slate-900 font-sans">
+      {/* Mobile Header */}
+      <div className="lg:hidden bg-white border-b border-slate-100 p-4 sticky top-0 z-30 flex justify-between items-center">
+        <button 
+          onClick={() => { setActiveTab('dashboard'); setIsMobileMenuOpen(false); }}
+          className="flex items-center gap-2 hover:opacity-80 transition-opacity"
+        >
+          <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center text-white">
+            <ShieldCheck size={16} />
+          </div>
+          <span className="font-bold text-sm">Kinetix</span>
+        </button>
+        <button 
+          onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+          className="p-2 text-slate-600 hover:bg-slate-50 rounded-lg"
+        >
+          {isMobileMenuOpen ? <X size={24} /> : <Menu size={24} />}
+        </button>
+      </div>
+
+      {/* Sidebar - Desktop & Mobile Overlay */}
+      <nav className={`
+        fixed left-0 top-0 h-full w-64 bg-white border-r border-slate-100 p-6 flex flex-col z-40 transition-transform duration-300
+        ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
+      `}>
+        <div className="flex items-center justify-between mb-10">
+          <button 
+            onClick={() => { setActiveTab('dashboard'); setIsMobileMenuOpen(false); }}
+            className="flex items-center gap-3 hover:opacity-80 transition-opacity"
+          >
+            <div className="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center text-white shadow-lg shadow-blue-100">
+              <ShieldCheck size={20} />
+            </div>
+            <div className="text-left">
+              <h1 className="font-bold text-lg leading-tight text-slate-900">Kinetix</h1>
+              <p className="text-[10px] text-blue-600 uppercase tracking-wider font-black">Functional Zone</p>
+            </div>
+          </button>
+          <button className="lg:hidden" onClick={() => setIsMobileMenuOpen(false)}>
+            <X size={20} className="text-slate-400" />
+          </button>
+        </div>
+
+        <div className="space-y-2 flex-1">
+          <button 
+            onClick={() => { setActiveTab('dashboard'); setIsMobileMenuOpen(false); }}
+            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all relative ${activeTab === 'dashboard' ? 'bg-blue-50 text-blue-600' : 'text-slate-500 hover:bg-slate-50'}`}
+          >
+            <Clock size={20} />
+            <span className="font-medium">Dashboard</span>
+            {birthdayAlerts.length > 0 && (
+              <span className="absolute right-4 top-1/2 -translate-y-1/2 w-2 h-2 bg-blue-500 rounded-full shadow-sm shadow-blue-200 animate-pulse"></span>
+            )}
+          </button>
+          <button 
+            onClick={() => { setActiveTab('members'); setIsMobileMenuOpen(false); }}
+            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all relative ${activeTab === 'members' ? 'bg-blue-50 text-blue-600' : 'text-slate-500 hover:bg-slate-50'}`}
+          >
+            <Users size={20} />
+            <span className="font-medium">Miembros</span>
+            {paymentAlerts.length > 0 && (
+              <span className="absolute right-4 top-1/2 -translate-y-1/2 w-2 h-2 bg-rose-600 rounded-full shadow-sm shadow-rose-200"></span>
+            )}
+          </button>
+          <button 
+            onClick={() => { setActiveTab('payments'); setIsMobileMenuOpen(false); }}
+            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'payments' ? 'bg-blue-50 text-blue-600' : 'text-slate-500 hover:bg-slate-50'} ${currentRole === 'Staff' ? 'hidden' : ''}`}
+          >
+            <CreditCard size={20} />
+            <span className="font-medium">Pagos</span>
+          </button>
+          
+          {(currentRole === 'Leslie' || currentRole === 'Jorge') && (
+            <>
+              <button 
+                onClick={() => { setActiveTab('expenses'); setIsMobileMenuOpen(false); }}
+                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'expenses' ? 'bg-blue-50 text-blue-600' : 'text-slate-500 hover:bg-slate-50'}`}
+              >
+                <TrendingDown size={20} />
+                <span className="font-medium">Gastos</span>
+              </button>
+              <button 
+                onClick={() => { setActiveTab('analytics'); setIsMobileMenuOpen(false); }}
+                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'analytics' ? 'bg-blue-50 text-blue-600' : 'text-slate-500 hover:bg-slate-50'}`}
+              >
+                <BarChart3 size={20} />
+                <span className="font-medium">Reportes</span>
+              </button>
+            </>
+          )}
+
+          <button 
+            onClick={() => { setActiveTab('attendance'); setIsMobileMenuOpen(false); }}
+            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'attendance' ? 'bg-blue-50 text-blue-600' : 'text-slate-500 hover:bg-slate-50'}`}
+          >
+            <Fingerprint size={20} />
+            <span className="font-medium">Asistencia</span>
+          </button>
+
+          <button 
+            onClick={() => { setActiveTab('inventory'); setIsMobileMenuOpen(false); }}
+            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'inventory' ? 'bg-blue-50 text-blue-600' : 'text-slate-500 hover:bg-slate-50'}`}
+          >
+            <ShoppingBag size={20} />
+            <span className="font-medium">Inventario</span>
+          </button>
+        </div>
+
+        <div className="mt-auto pt-6 border-t border-slate-100">
+          <div className="p-4 bg-slate-50 rounded-2xl">
+            <div className="flex items-center gap-3 mb-3">
+              <div className="w-8 h-8 bg-slate-200 rounded-full flex items-center justify-center text-slate-600">
+                <User size={16} />
+              </div>
+              <div>
+                <div className="text-sm font-bold">{currentRole}</div>
+                <div className="text-[10px] text-slate-400 uppercase tracking-wider font-semibold">
+                  {currentRole === 'Leslie' ? 'Super Admin' : currentRole === 'Jorge' ? 'Admin' : 'Staff'}
+                </div>
+              </div>
+            </div>
+            <button 
+              onClick={handleLogout}
+              className="w-full flex items-center justify-center gap-2 text-xs bg-white border border-slate-200 rounded-lg p-2 hover:bg-rose-50 hover:text-rose-600 hover:border-rose-100 transition-all font-bold"
+            >
+              <LogOut size={14} />
+              Cerrar Sesión
+            </button>
+          </div>
+        </div>
+      </nav>
+
+      {/* Main Content */}
+      <main className="lg:ml-64 p-4 md:p-8">
+        <header className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
+          <div>
+            <h2 className="text-3xl font-bold tracking-tight">
+              {activeTab === 'dashboard' && 'Resumen General'}
+              {activeTab === 'members' && 'Gestión de Miembros'}
+              {activeTab === 'payments' && 'Historial de Pagos'}
+              {activeTab === 'expenses' && 'Control de Gastos'}
+              {activeTab === 'analytics' && 'Análisis de Rentabilidad'}
+              {activeTab === 'attendance' && 'Asistencia de Hoy'}
+            </h2>
+            <p className="text-slate-500 mt-1">
+              {new Date().toLocaleDateString('es-ES', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+            </p>
+          </div>
+          <div className="flex gap-3">
+            {currentRole === 'Leslie' && activeTab === 'expenses' && (
+              <button 
+                onClick={() => setShowAddExpense(true)}
+                className="flex items-center gap-2 bg-rose-600 text-white px-4 py-2 rounded-xl hover:bg-rose-700 transition-all font-medium shadow-sm"
+              >
+                <Plus size={18} />
+                Registrar Gasto
+              </button>
+            )}
+            <button 
+              onClick={() => setShowAddMember(true)}
+              className="flex items-center gap-2 bg-white border border-slate-200 px-4 py-2 rounded-xl hover:bg-slate-50 transition-all font-medium"
+            >
+              <UserPlus size={18} />
+              Nuevo Miembro
+            </button>
+            <button 
+              onClick={() => setShowAddPayment(true)}
+              className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-xl hover:bg-indigo-700 transition-all font-medium shadow-sm"
+            >
+              <Plus size={18} />
+              Registrar Pago
+            </button>
+          </div>
+        </header>
+
+        {activeTab === 'dashboard' && (
+          <div className="space-y-8">
+            {/* Birthday Alerts Section */}
+            {birthdayAlerts.length > 0 && (
+              <div className="bg-blue-50 border border-blue-100 rounded-2xl p-6">
+                <div className="flex items-center gap-2 mb-4 text-blue-600">
+                  <Gift size={20} />
+                  <h3 className="font-bold">¡Hoy es su Cumpleaños!</h3>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {birthdayAlerts.map(m => (
+                    <div key={m.id} className="bg-white p-4 rounded-xl border border-blue-100 flex justify-between items-center shadow-sm">
+                      <div>
+                        <div className="font-bold text-slate-900">{m.name}</div>
+                        <div className="text-xs font-bold uppercase text-blue-500">
+                          ¡Felicítalo hoy! (50% desc)
+                        </div>
+                      </div>
+                      <button 
+                        onClick={() => {
+                          const msg = `¡Feliz cumpleaños ${m.name}! Te deseamos lo mejor desde Kinetix Functional Zone. Recuerda que tienes un 50% de descuento en tu próxima mensualidad. ¡Te esperamos!`;
+                          window.open(`https://wa.me/${m.phone?.replace(/\D/g, '')}?text=${encodeURIComponent(msg)}`, '_blank');
+                        }}
+                        className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                      >
+                        <MessageCircle size={18} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Critical Alerts Section */}
+            {paymentAlerts.length > 0 && (
+              <div className="bg-rose-50 border border-rose-100 rounded-2xl p-6">
+                <div className="flex items-center gap-2 mb-4 text-rose-600">
+                  <AlertCircle size={20} />
+                  <h3 className="font-bold">Alertas de Pago Prioritarias</h3>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {paymentAlerts.map(m => {
+                    const daysLeft = Math.ceil((new Date(m.last_expiry!).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24));
+                    return (
+                      <div key={m.id} className="bg-white p-4 rounded-xl border border-rose-100 flex justify-between items-center shadow-sm">
+                        <div>
+                          <div className="font-bold text-slate-900">{m.name}</div>
+                          <div className={`text-xs font-bold uppercase ${daysLeft < 0 ? 'text-rose-600' : 'text-amber-600'}`}>
+                            {daysLeft < 0 ? `Vencido hace ${Math.abs(daysLeft)}d` : daysLeft === 0 ? 'Vence hoy' : `Vence en ${daysLeft}d`}
+                          </div>
+                        </div>
+                        <div className="flex gap-2">
+                          <button 
+                            onClick={() => sendWhatsAppReminder(m)}
+                            className="p-2 text-green-600 hover:bg-green-50 rounded-lg transition-colors"
+                          >
+                            <MessageCircle size={18} />
+                          </button>
+                          <button 
+                            onClick={() => {
+                              setSelectedMember(m);
+                              setNewPayment({ ...newPayment, member_id: m.id });
+                              setShowAddPayment(true);
+                            }}
+                            className="p-2 text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
+                          >
+                            <CreditCard size={18} />
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+            {/* Financial Summary for Leslie and Jorge */}
+            {(currentRole === 'Leslie' || currentRole === 'Jorge') && (
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="p-2 bg-emerald-50 text-emerald-600 rounded-lg">
+                      <TrendingUp size={20} />
+                    </div>
+                    <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Ingresos Totales</span>
+                  </div>
+                  <div className="text-3xl font-bold text-emerald-600">${financialStats.total_income.toFixed(2)}</div>
+                  <p className="text-slate-400 text-sm mt-2">Total recaudado</p>
+                </div>
+
+                {currentRole === 'Leslie' && (
+                  <>
+                    <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+                      <div className="flex items-center justify-between mb-4">
+                        <div className="p-2 bg-rose-50 text-rose-600 rounded-lg">
+                          <TrendingDown size={20} />
+                        </div>
+                        <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Gastos Totales</span>
+                      </div>
+                      <div className="text-3xl font-bold text-rose-600">${financialStats.total_expenses.toFixed(2)}</div>
+                      <p className="text-slate-400 text-sm mt-2">Total egresos</p>
+                    </div>
+
+                    <div className="bg-indigo-600 p-6 rounded-2xl shadow-lg border border-indigo-500 text-white">
+                      <div className="flex items-center justify-between mb-4">
+                        <div className="p-2 bg-white/20 text-white rounded-lg">
+                          <DollarSign size={20} />
+                        </div>
+                        <span className="text-xs font-semibold text-white/60 uppercase tracking-wider">Rentabilidad</span>
+                      </div>
+                      <div className="text-3xl font-bold">${financialStats.profit.toFixed(2)}</div>
+                      <p className="text-white/60 text-sm mt-2">Ganancia neta</p>
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+                <div className="flex items-center justify-between mb-4">
+                  <div className="p-2 bg-blue-50 text-blue-600 rounded-lg">
+                    <Users size={20} />
+                  </div>
+                  <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Total Miembros</span>
+                </div>
+                <div className="text-3xl font-bold">{members.length}</div>
+                <p className="text-slate-400 text-sm mt-2">Miembros registrados</p>
+              </div>
+
+              <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+                <div className="flex items-center justify-between mb-4">
+                  <div className="p-2 bg-emerald-50 text-emerald-600 rounded-lg">
+                    <CheckCircle2 size={20} />
+                  </div>
+                  <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Activos</span>
+                </div>
+                <div className="text-3xl font-bold">
+                  {members.filter(m => !isExpired(m.last_expiry)).length}
+                </div>
+                <p className="text-slate-400 text-sm mt-2">Con mensualidad vigente</p>
+              </div>
+
+              <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+                <div className="flex items-center justify-between mb-4">
+                  <div className="p-2 bg-rose-50 text-rose-600 rounded-lg">
+                    <AlertCircle size={20} />
+                  </div>
+                  <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Vencidos</span>
+                </div>
+                <div className="text-3xl font-bold">
+                  {members.filter(m => isExpired(m.last_expiry) && m.last_expiry).length}
+                </div>
+                <p className="text-slate-400 text-sm mt-2">Requieren renovación</p>
+              </div>
+
+              <div className="md:col-span-2 bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+                <div className="p-6 border-bottom border-slate-50 flex justify-between items-center">
+                  <h3 className="font-bold text-lg">Pagos Recientes</h3>
+                  <button onClick={() => setActiveTab('payments')} className="text-indigo-600 text-sm font-medium hover:underline">Ver todos</button>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left">
+                    <thead className="bg-slate-50 text-slate-400 text-xs uppercase tracking-wider">
+                      <tr>
+                        <th className="px-6 py-3 font-semibold">Miembro</th>
+                        <th className="px-6 py-3 font-semibold">Tipo</th>
+                        <th className="px-6 py-3 font-semibold">Monto</th>
+                        <th className="px-6 py-3 font-semibold">Fecha</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-50">
+                      {payments.slice(0, 5).map(p => (
+                        <tr key={p.id} className="hover:bg-slate-50 transition-all">
+                          <td className="px-6 py-4 font-medium">{p.member_name}</td>
+                          <td className="px-6 py-4">
+                            <span className={`px-2 py-1 rounded-full text-xs font-medium ${p.payment_type === 'monthly' ? 'bg-indigo-50 text-indigo-600' : 'bg-amber-50 text-amber-600'}`}>
+                              {p.payment_type === 'monthly' ? 'Mensualidad' : 'Visita'}
+                            </span>
+                          </td>
+                          <td className="px-6 py-4 font-mono text-sm">${p.amount.toFixed(2)}</td>
+                          <td className="px-6 py-4 text-slate-500 text-sm">{new Date(p.payment_date).toLocaleDateString()}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
+                <h3 className="font-bold text-lg mb-4">Alertas de Vencimiento</h3>
+                <div className="space-y-4">
+                  {members
+                    .filter(m => m.last_expiry && !isExpired(m.last_expiry))
+                    .sort((a, b) => new Date(a.last_expiry!).getTime() - new Date(b.last_expiry!).getTime())
+                    .slice(0, 5)
+                    .map(m => {
+                      const daysLeft = Math.ceil((new Date(m.last_expiry!).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24));
+                      return (
+                        <div key={m.id} className={`flex items-center justify-between p-3 rounded-xl ${daysLeft <= 3 ? 'bg-rose-50 border border-rose-100' : 'bg-slate-50'}`}>
+                          <div>
+                            <div className="font-medium text-sm">{m.name}</div>
+                            <div className={`text-[10px] font-bold uppercase ${daysLeft <= 3 ? 'text-rose-600' : 'text-slate-400'}`}>
+                              {daysLeft === 0 ? 'Vence hoy' : `Vence en ${daysLeft} días`}
+                            </div>
+                          </div>
+                          <ChevronRight size={16} className={daysLeft <= 3 ? 'text-rose-300' : 'text-slate-300'} />
+                        </div>
+                      );
+                    })}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'members' && (
+          <div className="space-y-4">
+            <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-4">
+              <div className="relative w-full">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                <input 
+                  type="text" 
+                  placeholder="Buscar por nombre o teléfono..." 
+                  className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all"
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                />
+              </div>
+            </div>
+
+            {/* Mobile Cards View */}
+            <div className="grid grid-cols-1 gap-4 lg:hidden">
+              {filteredMembers.map(m => (
+                <div key={m.id} className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm space-y-4">
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <h4 className="font-bold text-slate-900">{m.name}</h4>
+                      <p className="text-xs text-slate-400">{m.phone}</p>
+                    </div>
+                    <span className={`px-2 py-1 rounded-full text-[10px] font-bold uppercase ${getStatusColor(m.last_expiry)}`}>
+                      {m.last_expiry ? (isExpired(m.last_expiry) ? 'Vencido' : 'Activo') : 'Sin Pagos'}
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center text-xs">
+                    <span className="text-slate-400 font-medium uppercase tracking-wider">Vencimiento</span>
+                    <span className="font-mono font-bold text-slate-700">
+                      {m.last_expiry ? new Date(m.last_expiry).toLocaleDateString() : 'N/A'}
+                    </span>
+                  </div>
+                  <div className="flex gap-2 pt-2">
+                    <button 
+                      onClick={() => { setSelectedMember(m); setNewPayment({ ...newPayment, member_id: m.id }); setShowAddPayment(true); }}
+                      className="flex-1 bg-blue-50 text-blue-600 py-2 rounded-xl font-bold text-xs"
+                    >
+                      Pagar
+                    </button>
+                    <button 
+                      onClick={() => handleEditMember(m)}
+                      className="flex-1 bg-slate-50 text-slate-600 py-2 rounded-xl font-bold text-xs"
+                    >
+                      Editar
+                    </button>
+                    <button 
+                      onClick={() => handleCheckIn(m.id)}
+                      className="flex-1 bg-emerald-50 text-emerald-600 py-2 rounded-xl font-bold text-xs"
+                    >
+                      Check-in
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Desktop Table View */}
+            <div className="hidden lg:block bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full text-left">
+                  <thead className="bg-slate-50 text-slate-400 text-xs uppercase tracking-wider">
+                    <tr>
+                      <th className="px-6 py-3 font-semibold">Nombre</th>
+                      <th className="px-6 py-3 font-semibold">Contacto</th>
+                      <th className="px-6 py-3 font-semibold">Cumpleaños</th>
+                      <th className="px-6 py-3 font-semibold">Estado</th>
+                      <th className="px-6 py-3 font-semibold">Vencimiento</th>
+                      <th className="px-6 py-3 font-semibold">Acciones</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-50">
+                    {filteredMembers.map(m => (
+                      <tr key={m.id} className="hover:bg-slate-50 transition-all">
+                        <td className="px-6 py-4">
+                          <div className="font-medium">{m.name}</div>
+                          <div className="text-xs text-slate-400">{m.email}</div>
+                        </td>
+                        <td className="px-6 py-4 text-sm text-slate-600">{m.phone}</td>
+                        <td className="px-6 py-4 text-sm text-slate-600">
+                          {m.birth_date ? new Date(m.birth_date).toLocaleDateString('es-ES', { day: 'numeric', month: 'short' }) : '-'}
+                        </td>
+                        <td className="px-6 py-4">
+                          <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(m.last_expiry)}`}>
+                            {m.last_expiry ? (isExpired(m.last_expiry) ? 'Vencido' : 'Activo') : 'Sin Pagos'}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 text-sm font-mono">
+                          {m.last_expiry ? new Date(m.last_expiry).toLocaleDateString() : '-'}
+                        </td>
+                        <td className="px-6 py-4">
+                          <div className="flex gap-3">
+                            <button 
+                              onClick={() => {
+                                setSelectedMember(m);
+                                setNewPayment({ ...newPayment, member_id: m.id });
+                                setShowAddPayment(true);
+                              }}
+                              className="text-blue-600 hover:text-blue-800 font-bold text-xs uppercase"
+                            >
+                              Pagar
+                            </button>
+                            <button 
+                              onClick={() => handleEditMember(m)}
+                              className="text-slate-400 hover:text-slate-600 font-bold text-xs uppercase"
+                            >
+                              Editar
+                            </button>
+                            <button 
+                              onClick={() => handleCheckIn(m.id)}
+                              className="text-emerald-600 hover:text-emerald-800 font-bold text-xs uppercase"
+                            >
+                              Check-in
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'payments' && (
+          <div className="space-y-4">
+            <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-4 flex flex-col md:flex-row gap-4">
+              <div className="relative flex-1">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                <input 
+                  type="text" 
+                  placeholder="Buscar por cliente..." 
+                  className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all"
+                  value={paymentSearchTerm}
+                  onChange={(e) => setPaymentSearchTerm(e.target.value)}
+                />
+              </div>
+              <div className="flex gap-2">
+                <input 
+                  type="month" 
+                  className="px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition-all text-sm"
+                  value={paymentMonthFilter}
+                  onChange={(e) => setPaymentMonthFilter(e.target.value)}
+                />
+                {currentRole === 'Leslie' && (
+                  <button 
+                    onClick={() => exportPaymentsToCSV(filteredPayments)}
+                    className="flex items-center gap-2 text-xs bg-blue-600 text-white px-4 py-2 rounded-xl hover:bg-blue-700 transition-all font-bold shadow-sm"
+                  >
+                    <DollarSign size={14} />
+                    Exportar Filtrados
+                  </button>
+                )}
+              </div>
+            </div>
+
+            <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+              <div className="p-6 border-b border-slate-100">
+                <h3 className="font-bold text-lg">Historial de Pagos</h3>
+                <p className="text-sm text-slate-500">
+                  {filteredPayments.length} transacciones encontradas
+                </p>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left">
+                  <thead className="bg-slate-50 text-slate-400 text-xs uppercase tracking-wider">
+                    <tr>
+                      <th className="px-6 py-3 font-semibold">Miembro</th>
+                      <th className="px-6 py-3 font-semibold">Monto</th>
+                      <th className="px-6 py-3 font-semibold">Tipo</th>
+                      <th className="px-6 py-3 font-semibold">Fecha</th>
+                      <th className="px-6 py-3 font-semibold">Recibido por</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-50">
+                    {filteredPayments.length === 0 ? (
+                      <tr>
+                        <td colSpan={5} className="px-6 py-12 text-center text-slate-400">
+                          No se encontraron pagos con los filtros aplicados
+                        </td>
+                      </tr>
+                    ) : (
+                      filteredPayments.map(p => (
+                        <tr key={p.id} className="hover:bg-slate-50 transition-all">
+                          <td className="px-6 py-4 font-medium">{p.member_name}</td>
+                          <td className="px-6 py-4 font-mono text-sm font-bold text-emerald-600">${p.amount.toFixed(2)}</td>
+                          <td className="px-6 py-4">
+                            <span className={`px-2 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${p.payment_type === 'monthly' ? 'bg-blue-50 text-blue-600' : 'bg-amber-50 text-amber-600'}`}>
+                              {p.payment_type === 'monthly' ? 'Mensualidad' : 'Visita'}
+                            </span>
+                          </td>
+                          <td className="px-6 py-4 text-slate-500 text-sm">{new Date(p.payment_date!).toLocaleDateString()}</td>
+                          <td className="px-6 py-4 text-sm text-slate-600">{p.received_by}</td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'expenses' && (currentRole === 'Leslie' || currentRole === 'Jorge') && (
+          <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left">
+                <thead className="bg-slate-50 text-slate-400 text-xs uppercase tracking-wider">
+                  <tr>
+                    <th className="px-6 py-3 font-semibold">Descripción</th>
+                    <th className="px-6 py-3 font-semibold">Categoría</th>
+                    <th className="px-6 py-3 font-semibold">Monto</th>
+                    <th className="px-6 py-3 font-semibold">Registrado por</th>
+                    <th className="px-6 py-3 font-semibold">Fecha</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-50">
+                  {expenses.map(e => (
+                    <tr key={e.id} className="hover:bg-slate-50 transition-all">
+                      <td className="px-6 py-4 font-medium">{e.description}</td>
+                      <td className="px-6 py-4">
+                        <span className="px-2 py-1 bg-slate-100 text-slate-600 rounded-full text-xs font-medium uppercase tracking-wider">
+                          {e.category}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 font-mono text-sm font-bold text-rose-600">-${e.amount.toFixed(2)}</td>
+                      <td className="px-6 py-4 text-sm text-slate-600">{e.created_by}</td>
+                      <td className="px-6 py-4 text-slate-500 text-sm">{new Date(e.expense_date).toLocaleDateString()}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'analytics' && (currentRole === 'Leslie' || currentRole === 'Jorge') && (
+          <div className="space-y-8">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+              <div className="bg-white p-8 rounded-3xl shadow-sm border border-slate-100">
+                <h3 className="text-xl font-bold mb-6">Balance General</h3>
+                <div className="h-80">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart
+                      data={[
+                        { name: 'Ingresos', valor: financialStats.total_income, color: '#2563eb' },
+                        { name: 'Gastos', valor: financialStats.total_expenses, color: '#e11d48' },
+                        { name: 'Utilidad', valor: financialStats.profit, color: '#059669' }
+                      ]}
+                    >
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                      <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 12 }} />
+                      <YAxis axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 12 }} />
+                      <Tooltip 
+                        contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
+                        cursor={{ fill: '#f8fafc' }}
+                      />
+                      <Bar dataKey="valor" radius={[8, 8, 0, 0]}>
+                        {[0, 1, 2].map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={index === 0 ? '#2563eb' : index === 1 ? '#e11d48' : '#059669'} />
+                        ))}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+
+              <div className="bg-white p-8 rounded-3xl shadow-sm border border-slate-100">
+                <h3 className="text-xl font-bold mb-6">Gastos por Categoría</h3>
+                <div className="h-80">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        data={['rent', 'utilities', 'equipment', 'salary', 'other'].map(cat => ({
+                          name: cat.toUpperCase(),
+                          value: expenses.filter(e => e.category === cat).reduce((acc, curr) => acc + curr.amount, 0)
+                        })).filter(d => d.value > 0)}
+                        cx="50%"
+                        cy="50%"
+                        innerRadius={60}
+                        outerRadius={100}
+                        paddingAngle={5}
+                        dataKey="value"
+                      >
+                        {['#6366f1', '#f59e0b', '#ec4899', '#10b981', '#64748b'].map((color, index) => (
+                          <Cell key={`cell-${index}`} fill={color} />
+                        ))}
+                      </Pie>
+                      <Tooltip 
+                        contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
+                      />
+                      <Legend verticalAlign="bottom" height={36}/>
+                    </PieChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+            </div>
+            
+            <div className="bg-white p-8 rounded-3xl shadow-sm border border-slate-100">
+              <h3 className="text-xl font-bold mb-4">Resumen de Rentabilidad</h3>
+              <p className="text-slate-500 mb-6">Análisis detallado de la salud financiera de Kinetix</p>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div className="p-6 bg-blue-50 rounded-2xl">
+                  <div className="text-blue-600 text-sm font-bold uppercase mb-1">Margen de Utilidad</div>
+                  <div className="text-2xl font-bold text-blue-900">
+                    {financialStats.total_income > 0 
+                      ? ((financialStats.profit / financialStats.total_income) * 100).toFixed(1)
+                      : 0}%
+                  </div>
+                </div>
+                <div className="p-6 bg-emerald-50 rounded-2xl">
+                  <div className="text-emerald-600 text-sm font-bold uppercase mb-1">Ingreso Promedio</div>
+                  <div className="text-2xl font-bold text-emerald-900">
+                    ${members.length > 0 ? (financialStats.total_income / members.length).toFixed(2) : 0}
+                  </div>
+                </div>
+                <div className="p-6 bg-slate-50 rounded-2xl">
+                  <div className="text-slate-600 text-sm font-bold uppercase mb-1">Total Miembros</div>
+                  <div className="text-2xl font-bold text-slate-900">{members.length}</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+        {activeTab === 'attendance' && (
+          <div className="space-y-6">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+                <div className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Asistencias Hoy</div>
+                <div className="text-3xl font-bold text-blue-600">{attendance.length}</div>
+              </div>
+            </div>
+
+            <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+              <div className="p-6 border-b border-slate-100 flex justify-between items-center">
+                <div>
+                  <h3 className="font-bold text-lg">Check-ins de Hoy</h3>
+                  <p className="text-sm text-slate-500">Lista de miembros que han asistido hoy</p>
+                </div>
+                {attendance.length > 0 && (
+                  <button 
+                    onClick={exportAttendanceToCSV}
+                    className="flex items-center gap-2 text-xs bg-slate-50 border border-slate-200 px-3 py-2 rounded-lg hover:bg-slate-100 transition-all font-bold"
+                  >
+                    <DollarSign size={14} />
+                    Exportar CSV
+                  </button>
+                )}
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left">
+                  <thead className="bg-slate-50 text-slate-400 text-xs uppercase tracking-wider">
+                    <tr>
+                      <th className="px-6 py-3 font-semibold">Miembro</th>
+                      <th className="px-6 py-3 font-semibold">Hora de Entrada</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-50">
+                    {attendance.length === 0 ? (
+                      <tr>
+                        <td colSpan={2} className="px-6 py-12 text-center">
+                          <div className="flex flex-col items-center gap-2 text-slate-400">
+                            <Fingerprint size={48} className="opacity-20" />
+                            <p className="font-medium">No hay asistencias registradas hoy</p>
+                          </div>
+                        </td>
+                      </tr>
+                    ) : (
+                      attendance.map(a => (
+                        <tr key={a.id} className="hover:bg-slate-50 transition-all">
+                          <td className="px-6 py-4 font-medium">{a.name}</td>
+                          <td className="px-6 py-4 text-sm text-slate-600">
+                            {new Date(a.check_in_time).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        )}
+        {activeTab === 'inventory' && (
+          <div className="space-y-6">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+                <div className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Valor de Inventario</div>
+                <div className="text-3xl font-bold text-blue-600">
+                  ${inventory.reduce((acc, curr) => acc + (curr.price * curr.stock), 0).toFixed(2)}
+                </div>
+              </div>
+              <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+                <div className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Productos en Stock</div>
+                <div className="text-3xl font-bold text-emerald-600">
+                  {inventory.reduce((acc, curr) => acc + curr.stock, 0)}
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+              <div className="p-6 border-b border-slate-100">
+                <h3 className="font-bold text-lg">Control de Inventario</h3>
+                <p className="text-sm text-slate-500">Gestión de productos y suplementos</p>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left">
+                  <thead className="bg-slate-50 text-slate-400 text-xs uppercase tracking-wider">
+                    <tr>
+                      <th className="px-6 py-3 font-semibold">Producto</th>
+                      <th className="px-6 py-3 font-semibold">Categoría</th>
+                      <th className="px-6 py-3 font-semibold">Precio</th>
+                      <th className="px-6 py-3 font-semibold">Stock</th>
+                      <th className="px-6 py-3 font-semibold">Acciones</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-50">
+                    {inventory.length === 0 ? (
+                      <tr>
+                        <td colSpan={5} className="px-6 py-12 text-center text-slate-400">
+                          No hay productos en el inventario
+                        </td>
+                      </tr>
+                    ) : (
+                      inventory.map(item => (
+                        <tr key={item.id} className="hover:bg-slate-50 transition-all">
+                          <td className="px-6 py-4 font-medium">{item.name}</td>
+                          <td className="px-6 py-4">
+                            <span className="px-2 py-1 bg-slate-100 text-slate-600 rounded-full text-[10px] font-bold uppercase tracking-wider">
+                              {item.category}
+                            </span>
+                          </td>
+                          <td className="px-6 py-4 font-mono text-sm font-bold text-blue-600">${item.price.toFixed(2)}</td>
+                          <td className="px-6 py-4">
+                            <span className={`font-bold ${item.stock < 5 ? 'text-rose-600' : 'text-slate-600'}`}>
+                              {item.stock} unidades
+                            </span>
+                          </td>
+                          <td className="px-6 py-4">
+                            <div className="flex gap-2">
+                              <button 
+                                onClick={() => {
+                                  setNewInventory({
+                                    name: item.name,
+                                    price: item.price,
+                                    stock: item.stock,
+                                    category: item.category
+                                  });
+                                  setIsEditing(true);
+                                  setEditingId(item.id);
+                                  setShowAddInventory(true);
+                                }}
+                                className="text-blue-600 hover:text-blue-800 font-bold text-xs uppercase"
+                              >
+                                Editar
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        )}
+      </main>
+
+      {/* Modals */}
+      <AnimatePresence>
+        {showAddMember && (
+          <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white rounded-3xl w-full max-w-md p-6 md:p-8 shadow-2xl relative overflow-y-auto max-h-[90vh]"
+            >
+              <button 
+                onClick={() => { setShowAddMember(false); setIsEditing(false); setEditingId(null); }}
+                className="absolute right-6 top-6 text-slate-400 hover:text-slate-600"
+              >
+                <X size={24} />
+              </button>
+              <h3 className="text-2xl font-bold mb-6">{isEditing ? 'Editar Miembro' : 'Nuevo Miembro'}</h3>
+              <form onSubmit={handleAddMember} className="space-y-4">
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">Nombre Completo</label>
+                  <input 
+                    required
+                    type="text" 
+                    className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 outline-none"
+                    value={newMember.name}
+                    onChange={e => setNewMember({...newMember, name: e.target.value})}
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-semibold text-slate-700 mb-1">Teléfono</label>
+                    <input 
+                      type="tel" 
+                      className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 outline-none"
+                      value={newMember.phone}
+                      onChange={e => setNewMember({...newMember, phone: e.target.value})}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-semibold text-slate-700 mb-1">Cumpleaños</label>
+                    <input 
+                      type="date" 
+                      className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 outline-none"
+                      value={newMember.birth_date}
+                      onChange={e => setNewMember({...newMember, birth_date: e.target.value})}
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">Email</label>
+                  <input 
+                    type="email" 
+                    className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 outline-none"
+                    value={newMember.email}
+                    onChange={e => setNewMember({...newMember, email: e.target.value})}
+                  />
+                </div>
+                {errorMsg && (
+                  <div className="bg-rose-50 text-rose-600 p-3 rounded-xl text-sm flex items-center gap-2">
+                    <AlertCircle size={16} />
+                    {errorMsg}
+                  </div>
+                )}
+                <div className="flex gap-3 mt-8">
+                  <button 
+                    type="button"
+                    onClick={() => { setShowAddMember(false); setIsEditing(false); setEditingId(null); }}
+                    className="flex-1 px-4 py-2 border border-slate-200 rounded-xl font-medium hover:bg-slate-50"
+                  >
+                    Cancelar
+                  </button>
+                  <button 
+                    type="submit"
+                    className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-xl font-medium hover:bg-blue-700 shadow-sm"
+                  >
+                    {isEditing ? 'Guardar Cambios' : 'Registrar Miembro'}
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+
+        {showAddPayment && (
+          <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white rounded-3xl w-full max-w-md p-6 md:p-8 shadow-2xl relative overflow-y-auto max-h-[90vh]"
+            >
+              <button 
+                onClick={() => setShowAddPayment(false)}
+                className="absolute right-6 top-6 text-slate-400 hover:text-slate-600"
+              >
+                <X size={24} />
+              </button>
+              <h3 className="text-2xl font-bold mb-6">Registrar Pago</h3>
+              <form onSubmit={handleAddPayment} className="space-y-4">
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">Buscar Miembro</label>
+                  <div className="relative mb-2">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                    <input 
+                      type="text" 
+                      placeholder="Escribe nombre o teléfono..."
+                      className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 outline-none text-sm"
+                      onChange={(e) => setSearchTerm(e.target.value)}
+                    />
+                  </div>
+                  <select 
+                    required
+                    className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 outline-none"
+                    value={newPayment.member_id}
+                    onChange={e => {
+                      const id = parseInt(e.target.value);
+                      setNewPayment({...newPayment, member_id: id});
+                      setSelectedMember(members.find(m => m.id === id) || null);
+                    }}
+                  >
+                    <option value="">Seleccionar miembro...</option>
+                    {members
+                      .filter(m => m.name.toLowerCase().includes(searchTerm.toLowerCase()) || m.phone?.includes(searchTerm))
+                      .map(m => (
+                        <option key={m.id} value={m.id}>{m.name} ({m.phone})</option>
+                      ))}
+                  </select>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-semibold text-slate-700 mb-1">Tipo de Pago</label>
+                    <select 
+                      className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 outline-none"
+                      value={newPayment.payment_type}
+                      onChange={e => {
+                        const type = e.target.value as any;
+                        const suggestedAmount = type === 'visit' ? 50 : 500 * newPayment.months;
+                        setNewPayment({...newPayment, payment_type: type, amount: suggestedAmount});
+                      }}
+                    >
+                      <option value="monthly">Mensualidad</option>
+                      <option value="visit">Visita</option>
+                    </select>
+                  </div>
+                  {newPayment.payment_type === 'monthly' && (
+                    <div>
+                      <label className="block text-sm font-semibold text-slate-700 mb-1">Meses</label>
+                      <input 
+                        type="number" 
+                        min="1"
+                        className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 outline-none"
+                        value={newPayment.months}
+                        onChange={e => {
+                          const months = parseInt(e.target.value);
+                          const suggestedAmount = 500 * months;
+                          setNewPayment({...newPayment, months, amount: suggestedAmount});
+                        }}
+                      />
+                    </div>
+                  )}
+                </div>
+
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">Monto Base ($)</label>
+                  <input 
+                    required
+                    type="number" 
+                    step="0.01"
+                    className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 outline-none font-mono"
+                    value={newPayment.amount}
+                    onChange={e => setNewPayment({...newPayment, amount: parseFloat(e.target.value)})}
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">Descuento</label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <select 
+                      className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 outline-none"
+                      value={newPayment.discount_type}
+                      onChange={e => setNewPayment({...newPayment, discount_type: e.target.value as any})}
+                    >
+                      <option value="none">Ninguno</option>
+                      <option value="birthday">Cumpleaños (50%)</option>
+                      <option value="other">Otro</option>
+                    </select>
+                    {newPayment.discount_type === 'other' && (
+                      <input 
+                        type="number" 
+                        placeholder="Monto $"
+                        className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 outline-none"
+                        value={newPayment.discount_amount}
+                        onChange={e => setNewPayment({...newPayment, discount_amount: parseFloat(e.target.value)})}
+                      />
+                    )}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">Recibido por (Staff)</label>
+                  <input 
+                    required
+                    type="text" 
+                    placeholder="Nombre del recepcionista"
+                    className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 outline-none"
+                    value={newPayment.received_by}
+                    onChange={e => setNewPayment({...newPayment, received_by: e.target.value})}
+                  />
+                </div>
+
+                <div className="bg-indigo-50 p-4 rounded-2xl">
+                  <div className="flex justify-between text-sm text-indigo-600 font-medium">
+                    <span>Subtotal:</span>
+                    <span>${newPayment.amount.toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between text-lg font-bold text-indigo-900 mt-1">
+                    <span>Total a pagar:</span>
+                    <span>
+                      ${(newPayment.amount - 
+                        (newPayment.discount_type === 'birthday' ? newPayment.amount * 0.5 : (newPayment.discount_type === 'other' ? newPayment.discount_amount : 0))).toFixed(2)}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="flex gap-3 mt-6">
+                  <button 
+                    type="button"
+                    onClick={() => {
+                      setShowAddPayment(false);
+                      setSelectedMember(null);
+                    }}
+                    className="flex-1 px-4 py-2 border border-slate-200 rounded-xl font-medium hover:bg-slate-50"
+                  >
+                    Cancelar
+                  </button>
+                  <button 
+                    type="submit"
+                    className="flex-1 px-4 py-2 bg-indigo-600 text-white rounded-xl font-medium hover:bg-indigo-700 shadow-sm"
+                  >
+                    Confirmar Pago
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+        {showAddExpense && (currentRole === 'Leslie' || currentRole === 'Jorge') && (
+          <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white rounded-3xl w-full max-w-md p-8 shadow-2xl relative"
+            >
+              <button 
+                onClick={() => { setShowAddExpense(false); setIsEditing(false); setEditingId(null); }}
+                className="absolute right-6 top-6 text-slate-400 hover:text-slate-600"
+              >
+                <X size={24} />
+              </button>
+              <h3 className="text-2xl font-bold mb-6">{isEditing ? 'Editar Gasto' : 'Registrar Gasto'}</h3>
+              <form onSubmit={handleAddExpense} className="space-y-4">
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">Descripción</label>
+                  <input 
+                    required
+                    type="text" 
+                    placeholder="Ej: Pago de renta, Luz, Equipo..."
+                    className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 outline-none"
+                    value={newExpense.description}
+                    onChange={e => setNewExpense({...newExpense, description: e.target.value})}
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-semibold text-slate-700 mb-1">Monto ($)</label>
+                    <input 
+                      required
+                      type="number" 
+                      step="0.01"
+                      className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 outline-none font-mono"
+                      value={newExpense.amount}
+                      onChange={e => setNewExpense({...newExpense, amount: parseFloat(e.target.value)})}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-semibold text-slate-700 mb-1">Categoría</label>
+                    <select 
+                      className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 outline-none"
+                      value={newExpense.category}
+                      onChange={e => setNewExpense({...newExpense, category: e.target.value})}
+                    >
+                      <option value="rent">Renta</option>
+                      <option value="utilities">Servicios (Luz/Agua)</option>
+                      <option value="equipment">Equipo</option>
+                      <option value="salary">Sueldos</option>
+                      <option value="other">Otro</option>
+                    </select>
+                  </div>
+                </div>
+                <div className="flex gap-3 mt-8">
+                  <button 
+                    type="button"
+                    onClick={() => { setShowAddExpense(false); setIsEditing(false); setEditingId(null); }}
+                    className="flex-1 px-4 py-2 border border-slate-200 rounded-xl font-medium hover:bg-slate-50"
+                  >
+                    Cancelar
+                  </button>
+                  <button 
+                    type="submit"
+                    className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-xl font-medium hover:bg-blue-700 shadow-sm"
+                  >
+                    {isEditing ? 'Guardar Cambios' : 'Registrar Gasto'}
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+        {showAddInventory && (currentRole === 'Leslie' || currentRole === 'Jorge') && (
+          <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white rounded-3xl w-full max-w-md p-8 shadow-2xl relative"
+            >
+              <button 
+                onClick={() => { setShowAddInventory(false); setIsEditing(false); setEditingId(null); }}
+                className="absolute right-6 top-6 text-slate-400 hover:text-slate-600"
+              >
+                <X size={24} />
+              </button>
+              <h3 className="text-2xl font-bold mb-6">{isEditing ? 'Editar Producto' : 'Nuevo Producto'}</h3>
+              <form onSubmit={handleAddInventory} className="space-y-4">
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">Nombre del Producto</label>
+                  <input 
+                    required
+                    type="text" 
+                    className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500/20 outline-none"
+                    value={newInventory.name}
+                    onChange={e => setNewInventory({...newInventory, name: e.target.value})}
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-semibold text-slate-700 mb-1">Precio ($)</label>
+                    <input 
+                      required
+                      type="number" 
+                      step="0.01"
+                      className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500/20 outline-none font-mono"
+                      value={newInventory.price}
+                      onChange={e => setNewInventory({...newInventory, price: parseFloat(e.target.value)})}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-semibold text-slate-700 mb-1">Stock Inicial</label>
+                    <input 
+                      required
+                      type="number" 
+                      className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500/20 outline-none"
+                      value={newInventory.stock}
+                      onChange={e => setNewInventory({...newInventory, stock: parseInt(e.target.value)})}
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">Categoría</label>
+                  <select 
+                    className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500/20 outline-none"
+                    value={newInventory.category}
+                    onChange={e => setNewInventory({...newInventory, category: e.target.value})}
+                  >
+                    <option value="drinks">Bebidas</option>
+                    <option value="supplements">Suplementos</option>
+                    <option value="clothing">Ropa/Accesorios</option>
+                    <option value="other">Otro</option>
+                  </select>
+                </div>
+                <div className="flex gap-3 mt-8">
+                  <button 
+                    type="button"
+                    onClick={() => { setShowAddInventory(false); setIsEditing(false); setEditingId(null); }}
+                    className="flex-1 px-4 py-2 border border-slate-200 rounded-xl font-medium hover:bg-slate-50"
+                  >
+                    Cancelar
+                  </button>
+                  <button 
+                    type="submit"
+                    className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-xl font-medium hover:bg-blue-700 shadow-sm"
+                  >
+                    {isEditing ? 'Guardar Cambios' : 'Registrar Producto'}
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+
+        {showMakeSale && (
+          <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white rounded-3xl w-full max-w-md p-8 shadow-2xl relative"
+            >
+              <button 
+                onClick={() => setShowMakeSale(false)}
+                className="absolute right-6 top-6 text-slate-400 hover:text-slate-600"
+              >
+                <X size={24} />
+              </button>
+              <h3 className="text-2xl font-bold mb-6">Venta Rápida</h3>
+              <form onSubmit={handleMakeSale} className="space-y-4">
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">Seleccionar Producto</label>
+                  <select 
+                    required
+                    className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500/20 outline-none"
+                    value={newSale.item_id}
+                    onChange={e => {
+                      const item = inventory.find(i => i.id === parseInt(e.target.value));
+                      setNewSale({
+                        ...newSale,
+                        item_id: parseInt(e.target.value),
+                        total_price: item ? item.price * newSale.quantity : 0
+                      });
+                    }}
+                  >
+                    <option value="">Seleccionar...</option>
+                    {inventory.map(item => (
+                      <option key={item.id} value={item.id} disabled={item.stock <= 0}>
+                        {item.name} (${item.price.toFixed(2)}) - Stock: {item.stock}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">Cantidad</label>
+                  <input 
+                    required
+                    type="number" 
+                    min="1"
+                    className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500/20 outline-none"
+                    value={newSale.quantity}
+                    onChange={e => {
+                      const qty = parseInt(e.target.value);
+                      const item = inventory.find(i => i.id === newSale.item_id);
+                      setNewSale({
+                        ...newSale,
+                        quantity: qty,
+                        total_price: item ? item.price * qty : 0
+                      });
+                    }}
+                  />
+                </div>
+                <div className="bg-blue-50 p-4 rounded-2xl">
+                  <div className="flex justify-between text-lg font-bold text-blue-900">
+                    <span>Total a cobrar:</span>
+                    <span>${newSale.total_price.toFixed(2)}</span>
+                  </div>
+                </div>
+                <div className="flex gap-3 mt-6">
+                  <button 
+                    type="button"
+                    onClick={() => setShowMakeSale(false)}
+                    className="flex-1 px-4 py-2 border border-slate-200 rounded-xl font-medium hover:bg-slate-50"
+                  >
+                    Cancelar
+                  </button>
+                  <button 
+                    type="submit"
+                    className="flex-1 px-4 py-2 bg-emerald-600 text-white rounded-xl font-medium hover:bg-emerald-700 shadow-sm"
+                  >
+                    Confirmar Venta
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
