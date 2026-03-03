@@ -23,7 +23,10 @@ import {
   MessageCircle,
   Fingerprint,
   ShoppingBag,
-  Lock
+  Lock,
+  Trash2,
+  Edit,
+  Info
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
@@ -40,6 +43,7 @@ import {
   Pie
 } from 'recharts';
 import { supabase } from './lib/supabase';
+import { encryptData, decryptData } from './lib/encryption';
 import { Member, Payment, Expense, FinancialStats, InventoryItem } from './types';
 
 type Role = 'Leslie' | 'Jorge' | 'Staff';
@@ -54,10 +58,12 @@ export default function App() {
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
   const [attendance, setAttendance] = useState<any[]>([]);
+  const [users, setUsers] = useState<any[]>([]);
+  const [selectedUserForPin, setSelectedUserForPin] = useState<string | null>(null);
   const [paymentAlerts, setPaymentAlerts] = useState<any[]>([]);
   const [birthdayAlerts, setBirthdayAlerts] = useState<any[]>([]);
   const [financialStats, setFinancialStats] = useState<FinancialStats>({ total_income: 0, total_expenses: 0, profit: 0 });
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'members' | 'payments' | 'expenses' | 'analytics' | 'attendance' | 'inventory'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'members' | 'payments' | 'expenses' | 'analytics' | 'attendance' | 'inventory' | 'users'>('dashboard');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [showAddMember, setShowAddMember] = useState(false);
   const [showAddPayment, setShowAddPayment] = useState(false);
@@ -67,6 +73,9 @@ export default function App() {
   const [showChangePin, setShowChangePin] = useState(false);
   const [pinForm, setPinForm] = useState({ currentPin: '', newPin: '', confirmPin: '' });
   const [pinStatus, setPinStatus] = useState({ message: '', type: '' });
+  const [toasts, setToasts] = useState<{ id: string; message: string; type: 'success' | 'error' | 'info' }[]>([]);
+  const [confirmation, setConfirmation] = useState<{ isOpen: boolean; title: string; message: string; onConfirm: () => void } | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
   const [isEditing, setIsEditing] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
@@ -85,7 +94,8 @@ export default function App() {
     discount_type: 'none' as 'birthday' | 'other' | 'none',
     discount_amount: 0,
     received_by: '',
-    months: 1
+    months: 1,
+    notes: ''
   });
   const [newExpense, setNewExpense] = useState({
     description: '',
@@ -151,7 +161,44 @@ export default function App() {
     setIsLoggedIn(false);
   };
 
+  const addToast = (message: string, type: 'success' | 'error' | 'info' = 'success') => {
+    const id = Math.random().toString(36).substring(2, 9);
+    setToasts(prev => [...prev, { id, message, type }]);
+    setTimeout(() => {
+      setToasts(prev => prev.filter(t => t.id !== id));
+    }, 3000);
+  };
+
+  const confirmAction = (title: string, message: string, onConfirm: () => void) => {
+    setConfirmation({ isOpen: true, title, message, onConfirm });
+  };
+
+  const [showAddUser, setShowAddUser] = useState(false);
+  const [newUser, setNewUser] = useState({ username: '', pin: '', role: 'Coach' });
+
+  const handleAddUser = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      // Check if user already exists
+      const { data: existingUser } = await supabase.from('users').select('username').eq('username', newUser.username).single();
+      if (existingUser) {
+        addToast('El usuario ya existe', 'error');
+        return;
+      }
+
+      const { error } = await supabase.from('users').insert([newUser]);
+      if (error) throw error;
+      addToast(`Usuario ${newUser.username} creado correctamente`);
+      setShowAddUser(false);
+      setNewUser({ username: '', pin: '', role: 'Coach' });
+      fetchData();
+    } catch (error) {
+      addToast('Error al crear usuario', 'error');
+    }
+  };
+
   const fetchData = async () => {
+    setIsLoading(true);
     try {
       // 1. Members with payments for last_expiry
       const { data: membersData } = await supabase
@@ -174,17 +221,24 @@ export default function App() {
         .select('*, members(name)')
         .order('payment_date', { ascending: false });
       
-      setPayments((paymentsData || []).map((p: any) => ({
+      const decryptedPayments = (paymentsData || []).map((p: any) => ({
         ...p,
-        member_name: (Array.isArray(p.members) ? p.members[0]?.name : p.members?.name) || 'Desconocido'
-      })));
+        member_name: (Array.isArray(p.members) ? p.members[0]?.name : p.members?.name) || 'Desconocido',
+        notes: decryptData(p.notes)
+      }));
+      setPayments(decryptedPayments);
 
       // 3. Expenses
       const { data: expensesData } = await supabase
         .from('expenses')
         .select('*')
         .order('expense_date', { ascending: false });
-      setExpenses(expensesData || []);
+      
+      const decryptedExpenses = (expensesData || []).map(e => ({
+        ...e,
+        description: decryptData(e.description)
+      }));
+      setExpenses(decryptedExpenses);
 
       // 4. Inventory
       const { data: inventoryData } = await supabase
@@ -238,10 +292,90 @@ export default function App() {
         return expiry >= now && expiry <= next3Days;
       });
       setPaymentAlerts(expiringAlerts);
+      
+      // 8. Users (Admin only)
+      if (currentRole === 'Leslie' || currentRole === 'Jorge') {
+        const { data: usersData } = await supabase.from('users').select('username, role');
+        setUsers(usersData || []);
+      }
 
+      setIsLoading(false);
     } catch (error) {
       console.error('Error fetching data:', error);
     }
+  };
+
+  const handleDeleteUser = async (username: string) => {
+    if (username === 'Leslie' || username === 'Jorge') {
+      addToast('No se pueden eliminar las cuentas principales', 'error');
+      return;
+    }
+
+    confirmAction(
+      '¿Eliminar Usuario?',
+      `Se borrará permanentemente el acceso para ${username}. ¿Deseas continuar?`,
+      async () => {
+        try {
+          const { error } = await supabase.from('users').delete().eq('username', username);
+          if (error) throw error;
+          addToast(`Usuario ${username} eliminado`);
+          fetchData();
+        } catch (error) {
+          addToast('Error al eliminar usuario', 'error');
+        }
+      }
+    );
+  };
+
+  const handleDeleteMember = async (id: number) => {
+    confirmAction(
+      '¿Eliminar Miembro?',
+      'Esta acción eliminará permanentemente al miembro y todo su historial de pagos y asistencias. ¿Deseas continuar?',
+      async () => {
+        try {
+          const { error } = await supabase.from('members').delete().eq('id', id);
+          if (error) throw error;
+          addToast('Miembro eliminado correctamente');
+          fetchData();
+        } catch (error) {
+          addToast('Error al eliminar miembro', 'error');
+        }
+      }
+    );
+  };
+
+  const handleDeletePayment = async (id: number) => {
+    confirmAction(
+      '¿Eliminar Pago?',
+      'Se borrará el registro de este pago. ¿Deseas continuar?',
+      async () => {
+        try {
+          const { error } = await supabase.from('payments').delete().eq('id', id);
+          if (error) throw error;
+          addToast('Pago eliminado');
+          fetchData();
+        } catch (error) {
+          addToast('Error al eliminar pago', 'error');
+        }
+      }
+    );
+  };
+
+  const handleDeleteExpense = async (id: number) => {
+    confirmAction(
+      '¿Eliminar Gasto?',
+      'Se borrará el registro de este gasto. ¿Deseas continuar?',
+      async () => {
+        try {
+          const { error } = await supabase.from('expenses').delete().eq('id', id);
+          if (error) throw error;
+          addToast('Gasto eliminado');
+          fetchData();
+        } catch (error) {
+          addToast('Error al eliminar gasto', 'error');
+        }
+      }
+    );
   };
 
   const handleCheckIn = async (memberId: number) => {
@@ -250,6 +384,7 @@ export default function App() {
         .from('attendance')
         .insert([{ member_id: memberId }]);
       if (error) throw error;
+      addToast('Check-in registrado correctamente');
       fetchData();
     } catch (error) {
       console.error('Error during check-in:', error);
@@ -354,6 +489,7 @@ export default function App() {
       setShowAddMember(false);
       setIsEditing(false);
       setEditingId(null);
+      addToast(isEditing ? 'Miembro actualizado' : 'Miembro registrado con éxito');
       fetchData();
     } catch (error) {
       setErrorMsg('Error de conexión');
@@ -395,13 +531,15 @@ export default function App() {
           discount_type: newPayment.discount_type,
           discount_amount: discount,
           received_by: newPayment.received_by || currentRole,
-          expiry_date
+          expiry_date,
+          notes: encryptData(newPayment.notes || '')
         }]);
 
       if (error) throw error;
 
       setShowAddPayment(false);
       setSelectedMember(null);
+      addToast('Pago registrado correctamente');
       fetchData();
     } catch (error) {
       console.error('Error adding payment:', error);
@@ -416,7 +554,7 @@ export default function App() {
         result = await supabase
           .from('expenses')
           .update({
-            description: newExpense.description,
+            description: encryptData(newExpense.description),
             amount: newExpense.amount,
             category: newExpense.category
           })
@@ -426,6 +564,7 @@ export default function App() {
           .from('expenses')
           .insert([{
             ...newExpense,
+            description: encryptData(newExpense.description),
             created_by: currentRole
           }]);
       }
@@ -436,6 +575,7 @@ export default function App() {
       setShowAddExpense(false);
       setIsEditing(false);
       setEditingId(null);
+      addToast(isEditing ? 'Gasto actualizado' : 'Gasto registrado');
       fetchData();
     } catch (error) {
       console.error('Error adding expense:', error);
@@ -452,6 +592,23 @@ export default function App() {
     setIsEditing(true);
     setEditingId(expense.id);
     setShowAddExpense(true);
+  };
+
+  const handleDeleteInventory = async (id: number) => {
+    confirmAction(
+      '¿Eliminar Producto?',
+      'Se borrará este producto del inventario. ¿Deseas continuar?',
+      async () => {
+        try {
+          const { error } = await supabase.from('inventory').delete().eq('id', id);
+          if (error) throw error;
+          addToast('Producto eliminado');
+          fetchData();
+        } catch (error) {
+          addToast('Error al eliminar producto', 'error');
+        }
+      }
+    );
   };
 
   const handleAddInventory = async (e: React.FormEvent) => {
@@ -518,29 +675,35 @@ export default function App() {
 
     try {
       const userData = JSON.parse(localStorage.getItem('kinetix_user') || '{}');
-      const { data: user, error: fetchError } = await supabase
-        .from('users')
-        .select('*')
-        .eq('username', userData.username)
-        .eq('pin', pinForm.currentPin)
-        .single();
+      const targetUsername = selectedUserForPin || userData.username;
+      const isAdminReset = !!selectedUserForPin && selectedUserForPin !== userData.username;
 
-      if (fetchError || !user) {
-        setPinStatus({ message: 'PIN actual incorrecto', type: 'error' });
-        return;
+      if (!isAdminReset) {
+        const { data: user, error: fetchError } = await supabase
+          .from('users')
+          .select('*')
+          .eq('username', userData.username)
+          .eq('pin', pinForm.currentPin)
+          .single();
+
+        if (fetchError || !user) {
+          setPinStatus({ message: 'PIN actual incorrecto', type: 'error' });
+          return;
+        }
       }
 
       const { error: updateError } = await supabase
         .from('users')
         .update({ pin: pinForm.newPin })
-        .eq('id', user.id);
+        .eq('username', targetUsername);
 
       if (updateError) throw updateError;
 
-      setPinStatus({ message: 'PIN actualizado con éxito', type: 'success' });
+      addToast(`PIN de ${targetUsername} actualizado`);
       setPinForm({ currentPin: '', newPin: '', confirmPin: '' });
       setTimeout(() => {
         setShowChangePin(false);
+        setSelectedUserForPin(null);
         setPinStatus({ message: '', type: '' });
       }, 2000);
     } catch (error) {
@@ -569,6 +732,10 @@ export default function App() {
     const matchesMonth = paymentMonthFilter ? p.payment_date?.startsWith(paymentMonthFilter) : true;
     return matchesSearch && matchesMonth;
   });
+
+  const Skeleton = ({ className, key }: { className?: string; key?: any }) => (
+    <div key={key} className={`animate-pulse bg-slate-200 rounded-xl ${className}`} />
+  );
 
   if (!isLoggedIn) {
     return (
@@ -735,6 +902,16 @@ export default function App() {
             <Fingerprint size={20} />
             <span className="font-medium">Asistencia</span>
           </button>
+          
+          {(currentRole === 'Leslie' || currentRole === 'Jorge') && (
+            <button 
+              onClick={() => { setActiveTab('users'); setIsMobileMenuOpen(false); }}
+              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'users' ? 'bg-blue-50 text-blue-600' : 'text-slate-500 hover:bg-slate-50'}`}
+            >
+              <User size={20} />
+              <span className="font-medium">Usuarios</span>
+            </button>
+          )}
 
           <button 
             onClick={() => { setActiveTab('inventory'); setIsMobileMenuOpen(false); }}
@@ -746,13 +923,15 @@ export default function App() {
         </div>
 
         <div className="mt-auto pt-6 border-t border-slate-100">
-          <button 
-            onClick={() => { setShowChangePin(true); setIsMobileMenuOpen(false); }}
-            className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-slate-500 hover:bg-slate-50 transition-all mb-2"
-          >
-            <Lock size={20} />
-            <span className="font-medium">Cambiar PIN</span>
-          </button>
+          {(currentRole === 'Leslie' || currentRole === 'Jorge') && (
+            <button 
+              onClick={() => { setShowChangePin(true); setIsMobileMenuOpen(false); }}
+              className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-slate-500 hover:bg-slate-50 transition-all mb-2"
+            >
+              <Lock size={20} />
+              <span className="font-medium">Cambiar PIN</span>
+            </button>
+          )}
           <div className="p-4 bg-slate-50 rounded-2xl">
             <div className="flex items-center gap-3 mb-3">
               <div className="w-8 h-8 bg-slate-200 rounded-full flex items-center justify-center text-slate-600">
@@ -821,213 +1000,233 @@ export default function App() {
 
         {activeTab === 'dashboard' && (
           <div className="space-y-8">
-            {/* Birthday Alerts Section */}
-            {birthdayAlerts.length > 0 && (
-              <div className="bg-blue-50 border border-blue-100 rounded-2xl p-6">
-                <div className="flex items-center gap-2 mb-4 text-blue-600">
-                  <Gift size={20} />
-                  <h3 className="font-bold">¡Hoy es su Cumpleaños!</h3>
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {birthdayAlerts.map(m => (
-                    <div key={m.id} className="bg-white p-4 rounded-xl border border-blue-100 flex justify-between items-center shadow-sm">
-                      <div>
-                        <div className="font-bold text-slate-900">{m.name}</div>
-                        <div className="text-xs font-bold uppercase text-blue-500">
-                          ¡Felicítalo hoy! (50% desc)
-                        </div>
-                      </div>
-                      <button 
-                        onClick={() => {
-                          const msg = `¡Feliz cumpleaños ${m.name}! Te deseamos lo mejor desde Kinetix Functional Zone. Recuerda que tienes un 50% de descuento en tu próxima mensualidad. ¡Te esperamos!`;
-                          window.open(`https://wa.me/${m.phone?.replace(/\D/g, '')}?text=${encodeURIComponent(msg)}`, '_blank');
-                        }}
-                        className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                      >
-                        <MessageCircle size={18} />
-                      </button>
-                    </div>
-                  ))}
-                </div>
+            {/* Birthday & Payment Alerts */}
+            {isLoading ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <Skeleton className="h-48 rounded-3xl" />
+                <Skeleton className="h-48 rounded-3xl" />
               </div>
-            )}
-
-            {/* Critical Alerts Section */}
-            {paymentAlerts.length > 0 && (
-              <div className="bg-rose-50 border border-rose-100 rounded-2xl p-6">
-                <div className="flex items-center gap-2 mb-4 text-rose-600">
-                  <AlertCircle size={20} />
-                  <h3 className="font-bold">Alertas de Pago Prioritarias</h3>
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {paymentAlerts.map(m => {
-                    const daysLeft = Math.ceil((new Date(m.last_expiry!).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24));
-                    return (
-                      <div key={m.id} className="bg-white p-4 rounded-xl border border-rose-100 flex justify-between items-center shadow-sm">
-                        <div>
-                          <div className="font-bold text-slate-900">{m.name}</div>
-                          <div className={`text-xs font-bold uppercase ${daysLeft < 0 ? 'text-rose-600' : 'text-amber-600'}`}>
-                            {daysLeft < 0 ? `Vencido hace ${Math.abs(daysLeft)}d` : daysLeft === 0 ? 'Vence hoy' : `Vence en ${daysLeft}d`}
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {birthdayAlerts.length > 0 && (
+                  <div className="bg-blue-50 border border-blue-100 rounded-[2rem] p-6">
+                    <div className="flex items-center gap-2 mb-4 text-blue-600">
+                      <Gift size={20} />
+                      <h3 className="font-bold">¡Hoy es su Cumpleaños!</h3>
+                    </div>
+                    <div className="space-y-3">
+                      {birthdayAlerts.map(m => (
+                        <div key={m.id} className="bg-white p-4 rounded-2xl border border-blue-100 flex justify-between items-center shadow-sm">
+                          <div>
+                            <div className="font-bold text-slate-900">{m.name}</div>
+                            <div className="text-[10px] font-black uppercase text-blue-500 tracking-wider">¡Felicítalo hoy! (50% desc)</div>
                           </div>
-                        </div>
-                        <div className="flex gap-2">
                           <button 
-                            onClick={() => sendWhatsAppReminder(m)}
-                            className="p-2 text-green-600 hover:bg-green-50 rounded-lg transition-colors"
+                            onClick={() => {
+                              const msg = `¡Feliz cumpleaños ${m.name}! Te deseamos lo mejor desde Kinetix Functional Zone. Recuerda que tienes un 50% de descuento en tu próxima mensualidad. ¡Te esperamos!`;
+                              window.open(`https://wa.me/${m.phone?.replace(/\D/g, '')}?text=${encodeURIComponent(msg)}`, '_blank');
+                            }}
+                            className="p-2 text-blue-600 hover:bg-blue-50 rounded-xl transition-colors"
                           >
                             <MessageCircle size={18} />
                           </button>
-                          <button 
-                            onClick={() => {
-                              setSelectedMember(m);
-                              setNewPayment({ ...newPayment, member_id: m.id });
-                              setShowAddPayment(true);
-                            }}
-                            className="p-2 text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
-                          >
-                            <CreditCard size={18} />
-                          </button>
                         </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-            {/* Financial Summary for Leslie and Jorge */}
-            {(currentRole === 'Leslie' || currentRole === 'Jorge') && (
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
-                  <div className="flex items-center justify-between mb-4">
-                    <div className="p-2 bg-emerald-50 text-emerald-600 rounded-lg">
-                      <TrendingUp size={20} />
+                      ))}
                     </div>
-                    <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Ingresos Totales</span>
                   </div>
-                  <div className="text-3xl font-bold text-emerald-600">${financialStats.total_income.toFixed(2)}</div>
-                  <p className="text-slate-400 text-sm mt-2">Total recaudado</p>
-                </div>
+                )}
 
-                {currentRole === 'Leslie' && (
-                  <>
-                    <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
-                      <div className="flex items-center justify-between mb-4">
-                        <div className="p-2 bg-rose-50 text-rose-600 rounded-lg">
-                          <TrendingDown size={20} />
-                        </div>
-                        <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Gastos Totales</span>
-                      </div>
-                      <div className="text-3xl font-bold text-rose-600">${financialStats.total_expenses.toFixed(2)}</div>
-                      <p className="text-slate-400 text-sm mt-2">Total egresos</p>
+                {paymentAlerts.length > 0 && (
+                  <div className="bg-rose-50 border border-rose-100 rounded-[2rem] p-6">
+                    <div className="flex items-center gap-2 mb-4 text-rose-600">
+                      <AlertCircle size={20} />
+                      <h3 className="font-bold">Alertas de Pago</h3>
                     </div>
-
-                    <div className="bg-indigo-600 p-6 rounded-2xl shadow-lg border border-indigo-500 text-white">
-                      <div className="flex items-center justify-between mb-4">
-                        <div className="p-2 bg-white/20 text-white rounded-lg">
-                          <DollarSign size={20} />
-                        </div>
-                        <span className="text-xs font-semibold text-white/60 uppercase tracking-wider">Rentabilidad</span>
-                      </div>
-                      <div className="text-3xl font-bold">${financialStats.profit.toFixed(2)}</div>
-                      <p className="text-white/60 text-sm mt-2">Ganancia neta</p>
+                    <div className="space-y-3">
+                      {paymentAlerts.map(m => {
+                        const daysLeft = Math.ceil((new Date(m.last_expiry!).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24));
+                        return (
+                          <div key={m.id} className="bg-white p-4 rounded-2xl border border-rose-100 flex justify-between items-center shadow-sm">
+                            <div>
+                              <div className="font-bold text-slate-900">{m.name}</div>
+                              <div className={`text-[10px] font-black uppercase tracking-wider ${daysLeft < 0 ? 'text-rose-600' : 'text-amber-600'}`}>
+                                {daysLeft < 0 ? `Vencido hace ${Math.abs(daysLeft)}d` : daysLeft === 0 ? 'Vence hoy' : `Vence en ${daysLeft}d`}
+                              </div>
+                            </div>
+                            <div className="flex gap-2">
+                              <button 
+                                onClick={() => sendWhatsAppReminder(m)}
+                                className="p-2 text-green-600 hover:bg-green-50 rounded-xl transition-colors"
+                              >
+                                <MessageCircle size={18} />
+                              </button>
+                              <button 
+                                onClick={() => {
+                                  setSelectedMember(m);
+                                  setNewPayment({ ...newPayment, member_id: m.id });
+                                  setShowAddPayment(true);
+                                }}
+                                className="p-2 text-indigo-600 hover:bg-indigo-50 rounded-xl transition-colors"
+                              >
+                                <CreditCard size={18} />
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
-                  </>
+                  </div>
                 )}
               </div>
             )}
+            {/* Bento Grid Dashboard */}
+            <div className="grid grid-cols-1 md:grid-cols-4 lg:grid-cols-6 gap-6">
+              {/* Financial Stats - Large Card */}
+              {(currentRole === 'Leslie' || currentRole === 'Jorge') && (
+                <div className="md:col-span-4 lg:col-span-3 bg-white p-8 rounded-[2.5rem] shadow-sm border border-slate-100 flex flex-col justify-between min-h-[300px]">
+                  <div>
+                    <div className="flex items-center justify-between mb-8">
+                      <div className="p-3 bg-indigo-50 text-indigo-600 rounded-2xl">
+                        <DollarSign size={24} />
+                      </div>
+                      <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">Resumen Financiero</span>
+                    </div>
+                    <div className="space-y-1">
+                      <div className="text-sm text-slate-500 font-medium">Balance Total</div>
+                      <div className="text-5xl font-black text-slate-900 tracking-tighter">
+                        ${financialStats.profit.toFixed(2)}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4 mt-8 pt-8 border-t border-slate-50">
+                    <div>
+                      <div className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider mb-1">Ingresos</div>
+                      <div className="text-xl font-bold text-slate-900">${financialStats.total_income.toFixed(2)}</div>
+                    </div>
+                    <div>
+                      <div className="text-[10px] font-bold text-rose-600 uppercase tracking-wider mb-1">Gastos</div>
+                      <div className="text-xl font-bold text-slate-900">${financialStats.total_expenses.toFixed(2)}</div>
+                    </div>
+                  </div>
+                </div>
+              )}
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
-                <div className="flex items-center justify-between mb-4">
-                  <div className="p-2 bg-blue-50 text-blue-600 rounded-lg">
+              {/* Members Stats - Bento Style */}
+              <div className="md:col-span-2 lg:col-span-3 grid grid-cols-1 sm:grid-cols-2 gap-6">
+                <div className="bg-white p-6 rounded-[2rem] shadow-sm border border-slate-100 flex flex-col justify-between">
+                  <div className="p-2 bg-blue-50 text-blue-600 rounded-xl w-fit mb-4">
                     <Users size={20} />
                   </div>
-                  <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Total Miembros</span>
+                  <div>
+                    <div className="text-3xl font-black text-slate-900">{members.length}</div>
+                    <div className="text-xs font-bold text-slate-400 uppercase tracking-wider">Total Miembros</div>
+                  </div>
                 </div>
-                <div className="text-3xl font-bold">{members.length}</div>
-                <p className="text-slate-400 text-sm mt-2">Miembros registrados</p>
-              </div>
-
-              <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
-                <div className="flex items-center justify-between mb-4">
-                  <div className="p-2 bg-emerald-50 text-emerald-600 rounded-lg">
+                <div className="bg-emerald-50 p-6 rounded-[2rem] border border-emerald-100 flex flex-col justify-between">
+                  <div className="p-2 bg-white text-emerald-600 rounded-xl w-fit mb-4">
                     <CheckCircle2 size={20} />
                   </div>
-                  <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Activos</span>
+                  <div>
+                    <div className="text-3xl font-black text-emerald-900">
+                      {members.filter(m => !isExpired(m.last_expiry)).length}
+                    </div>
+                    <div className="text-xs font-bold text-emerald-600/60 uppercase tracking-wider">Activos</div>
+                  </div>
                 </div>
-                <div className="text-3xl font-bold">
-                  {members.filter(m => !isExpired(m.last_expiry)).length}
-                </div>
-                <p className="text-slate-400 text-sm mt-2">Con mensualidad vigente</p>
-              </div>
-
-              <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
-                <div className="flex items-center justify-between mb-4">
-                  <div className="p-2 bg-rose-50 text-rose-600 rounded-lg">
+                <div className="bg-rose-50 p-6 rounded-[2rem] border border-rose-100 flex flex-col justify-between">
+                  <div className="p-2 bg-white text-rose-600 rounded-xl w-fit mb-4">
                     <AlertCircle size={20} />
                   </div>
-                  <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Vencidos</span>
+                  <div>
+                    <div className="text-3xl font-black text-rose-900">
+                      {members.filter(m => isExpired(m.last_expiry) && m.last_expiry).length}
+                    </div>
+                    <div className="text-xs font-bold text-rose-600/60 uppercase tracking-wider">Vencidos</div>
+                  </div>
                 </div>
-                <div className="text-3xl font-bold">
-                  {members.filter(m => isExpired(m.last_expiry) && m.last_expiry).length}
+                <div className="bg-slate-900 p-6 rounded-[2rem] text-white flex flex-col justify-between">
+                  <div className="p-2 bg-white/10 text-white rounded-xl w-fit mb-4">
+                    <Fingerprint size={20} />
+                  </div>
+                  <div>
+                    <div className="text-3xl font-black">{attendance.length}</div>
+                    <div className="text-xs font-bold text-white/40 uppercase tracking-wider">Asistencias Hoy</div>
+                  </div>
                 </div>
-                <p className="text-slate-400 text-sm mt-2">Requieren renovación</p>
               </div>
 
-              <div className="md:col-span-2 bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
-                <div className="p-6 border-bottom border-slate-50 flex justify-between items-center">
-                  <h3 className="font-bold text-lg">Pagos Recientes</h3>
-                  <button onClick={() => setActiveTab('payments')} className="text-indigo-600 text-sm font-medium hover:underline">Ver todos</button>
+              {/* Recent Payments Table - Large Bento Item */}
+              <div className="md:col-span-4 lg:col-span-4 bg-white rounded-[2.5rem] shadow-sm border border-slate-100 overflow-hidden">
+                <div className="p-8 border-b border-slate-50 flex justify-between items-center">
+                  <div>
+                    <h3 className="font-bold text-xl">Pagos Recientes</h3>
+                    <p className="text-sm text-slate-500">Últimas 5 transacciones</p>
+                  </div>
+                  <button 
+                    onClick={() => setActiveTab('payments')} 
+                    className="px-4 py-2 bg-slate-50 text-slate-600 text-xs font-bold rounded-xl hover:bg-slate-100 transition-all uppercase tracking-wider"
+                  >
+                    Ver todos
+                  </button>
                 </div>
                 <div className="overflow-x-auto">
                   <table className="w-full text-left">
-                    <thead className="bg-slate-50 text-slate-400 text-xs uppercase tracking-wider">
+                    <thead className="bg-slate-50/50 text-slate-400 text-[10px] uppercase tracking-widest">
                       <tr>
-                        <th className="px-6 py-3 font-semibold">Miembro</th>
-                        <th className="px-6 py-3 font-semibold">Tipo</th>
-                        <th className="px-6 py-3 font-semibold">Monto</th>
-                        <th className="px-6 py-3 font-semibold">Fecha</th>
+                        <th className="px-8 py-4 font-bold">Miembro</th>
+                        <th className="px-8 py-4 font-bold">Monto</th>
+                        <th className="px-8 py-4 font-bold">Fecha</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-50">
-                      {payments.slice(0, 5).map(p => (
-                        <tr key={p.id} className="hover:bg-slate-50 transition-all">
-                          <td className="px-6 py-4 font-medium">{p.member_name}</td>
-                          <td className="px-6 py-4">
-                            <span className={`px-2 py-1 rounded-full text-xs font-medium ${p.payment_type === 'monthly' ? 'bg-indigo-50 text-indigo-600' : 'bg-amber-50 text-amber-600'}`}>
-                              {p.payment_type === 'monthly' ? 'Mensualidad' : 'Visita'}
-                            </span>
-                          </td>
-                          <td className="px-6 py-4 font-mono text-sm">${p.amount.toFixed(2)}</td>
-                          <td className="px-6 py-4 text-slate-500 text-sm">{new Date(p.payment_date).toLocaleDateString()}</td>
-                        </tr>
-                      ))}
+                      {isLoading ? (
+                        [1, 2, 3, 4, 5].map(i => (
+                          <tr key={i}>
+                            <td className="px-8 py-4"><Skeleton className="h-4 w-32" /></td>
+                            <td className="px-8 py-4"><Skeleton className="h-4 w-16" /></td>
+                            <td className="px-8 py-4"><Skeleton className="h-4 w-24" /></td>
+                          </tr>
+                        ))
+                      ) : (
+                        payments.slice(0, 5).map(p => (
+                          <tr key={p.id} className="hover:bg-slate-50/50 transition-all group">
+                            <td className="px-8 py-5 font-bold text-slate-700">{p.member_name}</td>
+                            <td className="px-8 py-5 font-mono text-sm font-black text-emerald-600">${p.amount.toFixed(2)}</td>
+                            <td className="px-8 py-5 text-slate-400 text-xs font-medium">{new Date(p.payment_date!).toLocaleDateString()}</td>
+                          </tr>
+                        ))
+                      )}
                     </tbody>
                   </table>
                 </div>
               </div>
 
-              <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
-                <h3 className="font-bold text-lg mb-4">Alertas de Vencimiento</h3>
+              {/* Expiry Alerts - Bento Item */}
+              <div className="md:col-span-2 lg:col-span-2 bg-white rounded-[2.5rem] shadow-sm border border-slate-100 p-8">
+                <h3 className="font-bold text-xl mb-6">Próximos Vencimientos</h3>
                 <div className="space-y-4">
-                  {members
-                    .filter(m => m.last_expiry && !isExpired(m.last_expiry))
-                    .sort((a, b) => new Date(a.last_expiry!).getTime() - new Date(b.last_expiry!).getTime())
-                    .slice(0, 5)
-                    .map(m => {
-                      const daysLeft = Math.ceil((new Date(m.last_expiry!).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24));
-                      return (
-                        <div key={m.id} className={`flex items-center justify-between p-3 rounded-xl ${daysLeft <= 3 ? 'bg-rose-50 border border-rose-100' : 'bg-slate-50'}`}>
-                          <div>
-                            <div className="font-medium text-sm">{m.name}</div>
-                            <div className={`text-[10px] font-bold uppercase ${daysLeft <= 3 ? 'text-rose-600' : 'text-slate-400'}`}>
-                              {daysLeft === 0 ? 'Vence hoy' : `Vence en ${daysLeft} días`}
+                  {isLoading ? (
+                    [1, 2, 3, 4].map(i => <Skeleton key={i} className="h-16 rounded-2xl" />)
+                  ) : (
+                    members
+                      .filter(m => m.last_expiry && !isExpired(m.last_expiry))
+                      .sort((a, b) => new Date(a.last_expiry!).getTime() - new Date(b.last_expiry!).getTime())
+                      .slice(0, 4)
+                      .map(m => {
+                        const daysLeft = Math.ceil((new Date(m.last_expiry!).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24));
+                        return (
+                          <div key={m.id} className={`flex items-center justify-between p-4 rounded-2xl ${daysLeft <= 3 ? 'bg-rose-50 border border-rose-100' : 'bg-slate-50'}`}>
+                            <div>
+                              <div className="font-bold text-sm text-slate-900">{m.name}</div>
+                              <div className={`text-[10px] font-black uppercase tracking-wider ${daysLeft <= 3 ? 'text-rose-600' : 'text-slate-400'}`}>
+                                {daysLeft === 0 ? 'Vence hoy' : `Vence en ${daysLeft} días`}
+                              </div>
                             </div>
+                            <ChevronRight size={16} className={daysLeft <= 3 ? 'text-rose-300' : 'text-slate-300'} />
                           </div>
-                          <ChevronRight size={16} className={daysLeft <= 3 ? 'text-rose-300' : 'text-slate-300'} />
-                        </div>
-                      );
-                    })}
+                        );
+                      })
+                  )}
                 </div>
               </div>
             </div>
@@ -1149,6 +1348,14 @@ export default function App() {
                             >
                               Check-in
                             </button>
+                            {(currentRole === 'Leslie' || currentRole === 'Jorge') && (
+                              <button 
+                                onClick={() => handleDeleteMember(m.id)}
+                                className="text-rose-400 hover:text-rose-600 font-bold text-xs uppercase"
+                              >
+                                Eliminar
+                              </button>
+                            )}
                           </div>
                         </td>
                       </tr>
@@ -1207,13 +1414,17 @@ export default function App() {
                       <th className="px-6 py-3 font-semibold">Monto</th>
                       <th className="px-6 py-3 font-semibold">Tipo</th>
                       <th className="px-6 py-3 font-semibold">Fecha</th>
+                      <th className="px-6 py-3 font-semibold">Notas</th>
                       <th className="px-6 py-3 font-semibold">Recibido por</th>
+                      {(currentRole === 'Leslie' || currentRole === 'Jorge') && (
+                        <th className="px-6 py-3 font-semibold text-right">Acciones</th>
+                      )}
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-50">
                     {filteredPayments.length === 0 ? (
                       <tr>
-                        <td colSpan={5} className="px-6 py-12 text-center text-slate-400">
+                        <td colSpan={6} className="px-6 py-12 text-center text-slate-400">
                           No se encontraron pagos con los filtros aplicados
                         </td>
                       </tr>
@@ -1228,7 +1439,21 @@ export default function App() {
                             </span>
                           </td>
                           <td className="px-6 py-4 text-slate-500 text-sm">{new Date(p.payment_date!).toLocaleDateString()}</td>
+                          <td className="px-6 py-4 text-xs text-slate-400 italic max-w-[150px] truncate" title={p.notes}>
+                            {p.notes || '-'}
+                          </td>
                           <td className="px-6 py-4 text-sm text-slate-600">{p.received_by}</td>
+                          {(currentRole === 'Leslie' || currentRole === 'Jorge') && (
+                            <td className="px-6 py-4 text-right">
+                              <button 
+                                onClick={() => handleDeletePayment(p.id)}
+                                className="text-rose-400 hover:text-rose-600 p-2 rounded-lg hover:bg-rose-50 transition-all"
+                                title="Eliminar Pago"
+                              >
+                                <Trash2 size={16} />
+                              </button>
+                            </td>
+                          )}
                         </tr>
                       ))
                     )}
@@ -1250,6 +1475,7 @@ export default function App() {
                     <th className="px-6 py-3 font-semibold">Monto</th>
                     <th className="px-6 py-3 font-semibold">Registrado por</th>
                     <th className="px-6 py-3 font-semibold">Fecha</th>
+                    <th className="px-6 py-3 font-semibold text-right">Acciones</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50">
@@ -1264,6 +1490,24 @@ export default function App() {
                       <td className="px-6 py-4 font-mono text-sm font-bold text-rose-600">-${e.amount.toFixed(2)}</td>
                       <td className="px-6 py-4 text-sm text-slate-600">{e.created_by}</td>
                       <td className="px-6 py-4 text-slate-500 text-sm">{new Date(e.expense_date).toLocaleDateString()}</td>
+                      <td className="px-6 py-4 text-right">
+                        <div className="flex gap-2 justify-end">
+                          <button 
+                            onClick={() => handleEditExpense(e)}
+                            className="text-slate-400 hover:text-slate-600 p-2 rounded-lg hover:bg-slate-50 transition-all"
+                            title="Editar Gasto"
+                          >
+                            <Edit size={16} />
+                          </button>
+                          <button 
+                            onClick={() => handleDeleteExpense(e.id)}
+                            className="text-rose-400 hover:text-rose-600 p-2 rounded-lg hover:bg-rose-50 transition-all"
+                            title="Eliminar Gasto"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        </div>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -1492,11 +1736,80 @@ export default function App() {
                               >
                                 Editar
                               </button>
+                              <button 
+                                onClick={() => handleDeleteInventory(item.id)}
+                                className="text-rose-400 hover:text-rose-600 font-bold text-xs uppercase"
+                              >
+                                Eliminar
+                              </button>
                             </div>
                           </td>
                         </tr>
                       ))
                     )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        )}
+        {activeTab === 'users' && (currentRole === 'Leslie' || currentRole === 'Jorge') && (
+          <div className="space-y-6">
+            <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+              <div className="p-6 border-b border-slate-100 flex justify-between items-center">
+                <div>
+                  <h3 className="font-bold text-lg">Gestión de Usuarios</h3>
+                  <p className="text-sm text-slate-500">Administra los accesos y PINs del personal</p>
+                </div>
+                <button 
+                  onClick={() => setShowAddUser(true)}
+                  className="flex items-center gap-2 bg-slate-900 text-white px-4 py-2 rounded-xl hover:bg-slate-800 transition-all font-bold text-sm"
+                >
+                  <Plus size={18} />
+                  Nuevo Usuario
+                </button>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left">
+                  <thead className="bg-slate-50 text-slate-400 text-xs uppercase tracking-wider">
+                    <tr>
+                      <th className="px-6 py-3 font-semibold">Usuario</th>
+                      <th className="px-6 py-3 font-semibold">Rol</th>
+                      <th className="px-6 py-3 font-semibold">Acciones</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-50">
+                    {users.map(u => (
+                      <tr key={u.username} className="hover:bg-slate-50 transition-all">
+                        <td className="px-6 py-4 font-medium">{u.username}</td>
+                        <td className="px-6 py-4">
+                          <span className={`px-2 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${u.role === 'Leslie' ? 'bg-indigo-50 text-indigo-600' : u.role === 'Jorge' ? 'bg-blue-50 text-blue-600' : 'bg-slate-100 text-slate-600'}`}>
+                            {u.role}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4">
+                          <div className="flex gap-3">
+                            <button 
+                              onClick={() => {
+                                setSelectedUserForPin(u.username);
+                                setShowChangePin(true);
+                              }}
+                              className="text-indigo-600 hover:text-indigo-800 font-bold text-xs uppercase"
+                            >
+                              Cambiar PIN
+                            </button>
+                            {u.username !== 'Leslie' && u.username !== 'Jorge' && (
+                              <button 
+                                onClick={() => handleDeleteUser(u.username)}
+                                className="text-rose-400 hover:text-rose-600 font-bold text-xs uppercase"
+                              >
+                                Eliminar
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
                   </tbody>
                 </table>
               </div>
@@ -1713,6 +2026,17 @@ export default function App() {
                     className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 outline-none"
                     value={newPayment.received_by}
                     onChange={e => setNewPayment({...newPayment, received_by: e.target.value})}
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">Notas (Confidencial)</label>
+                  <textarea 
+                    placeholder="Notas adicionales sobre el pago..."
+                    className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 outline-none text-sm"
+                    rows={2}
+                    value={newPayment.notes}
+                    onChange={e => setNewPayment({...newPayment, notes: e.target.value})}
                   />
                 </div>
 
@@ -1991,7 +2315,79 @@ export default function App() {
           </div>
         )}
 
-        {showChangePin && (
+      {/* Add User Modal */}
+      <AnimatePresence>
+        {showAddUser && (
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="bg-white rounded-[2.5rem] shadow-2xl w-full max-w-md overflow-hidden"
+            >
+              <div className="p-8 border-b border-slate-50">
+                <h3 className="text-2xl font-black text-slate-900">Nuevo Usuario</h3>
+                <p className="text-sm text-slate-500">Crea una cuenta para el personal</p>
+              </div>
+              <form onSubmit={handleAddUser} className="p-8 space-y-6">
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Nombre de Usuario</label>
+                  <input 
+                    type="text" 
+                    required
+                    className="w-full px-5 py-4 bg-slate-50 border border-slate-100 rounded-2xl focus:outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all font-bold"
+                    placeholder="Ej: jorge_coach"
+                    value={newUser.username}
+                    onChange={(e) => setNewUser({ ...newUser, username: e.target.value })}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">PIN de Acceso</label>
+                  <input 
+                    type="password" 
+                    required
+                    maxLength={4}
+                    pattern="\d{4}"
+                    className="w-full px-5 py-4 bg-slate-50 border border-slate-100 rounded-2xl focus:outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all font-mono text-2xl tracking-[1em] text-center"
+                    placeholder="0000"
+                    value={newUser.pin}
+                    onChange={(e) => setNewUser({ ...newUser, pin: e.target.value })}
+                  />
+                  <p className="text-[10px] text-slate-400 text-center">Debe ser de 4 dígitos</p>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Rol</label>
+                  <select 
+                    className="w-full px-5 py-4 bg-slate-50 border border-slate-100 rounded-2xl focus:outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all font-bold appearance-none"
+                    value={newUser.role}
+                    onChange={(e) => setNewUser({ ...newUser, role: e.target.value })}
+                  >
+                    <option value="Coach">Coach</option>
+                    <option value="Admin">Admin</option>
+                  </select>
+                </div>
+                <div className="flex gap-3 pt-4">
+                  <button 
+                    type="button"
+                    onClick={() => setShowAddUser(false)}
+                    className="flex-1 px-6 py-4 bg-slate-50 text-slate-600 rounded-2xl font-bold hover:bg-slate-100 transition-all"
+                  >
+                    Cancelar
+                  </button>
+                  <button 
+                    type="submit"
+                    className="flex-1 px-6 py-4 bg-slate-900 text-white rounded-2xl font-bold hover:bg-slate-800 transition-all shadow-lg shadow-slate-900/20"
+                  >
+                    Crear Usuario
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {showChangePin && (
           <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
             <motion.div 
               initial={{ opacity: 0, scale: 0.95 }}
@@ -2000,24 +2396,29 @@ export default function App() {
               className="bg-white rounded-3xl w-full max-w-md p-8 shadow-2xl relative"
             >
               <button 
-                onClick={() => setShowChangePin(false)}
+                onClick={() => { setShowChangePin(false); setSelectedUserForPin(null); }}
                 className="absolute right-6 top-6 text-slate-400 hover:text-slate-600"
               >
                 <X size={24} />
               </button>
-              <h3 className="text-2xl font-bold mb-6">Cambiar PIN de Seguridad</h3>
+              <h3 className="text-2xl font-bold mb-2">Cambiar PIN</h3>
+              <p className="text-sm text-slate-500 mb-6">
+                {selectedUserForPin ? `Estás cambiando el PIN de: ${selectedUserForPin}` : 'Actualiza tu PIN de acceso personal'}
+              </p>
               <form onSubmit={handleChangePin} className="space-y-4">
-                <div>
-                  <label className="block text-sm font-semibold text-slate-700 mb-1">PIN Actual</label>
-                  <input 
-                    required
-                    type="password"
-                    maxLength={4}
-                    className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500/20 outline-none text-center text-2xl tracking-widest"
-                    value={pinForm.currentPin}
-                    onChange={e => setPinForm({ ...pinForm, currentPin: e.target.value.replace(/\D/g, '') })}
-                  />
-                </div>
+                {!selectedUserForPin && (
+                  <div>
+                    <label className="block text-sm font-semibold text-slate-700 mb-1">PIN Actual</label>
+                    <input 
+                      required
+                      type="password"
+                      maxLength={4}
+                      className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500/20 outline-none text-center text-2xl tracking-widest"
+                      value={pinForm.currentPin}
+                      onChange={e => setPinForm({ ...pinForm, currentPin: e.target.value.replace(/\D/g, '') })}
+                    />
+                  </div>
+                )}
                 <div>
                   <label className="block text-sm font-semibold text-slate-700 mb-1">Nuevo PIN (4 dígitos)</label>
                   <input 
@@ -2050,7 +2451,7 @@ export default function App() {
                 <div className="flex gap-3 mt-6">
                   <button 
                     type="button"
-                    onClick={() => setShowChangePin(false)}
+                    onClick={() => { setShowChangePin(false); setSelectedUserForPin(null); }}
                     className="flex-1 px-4 py-2 border border-slate-200 rounded-xl font-medium hover:bg-slate-50"
                   >
                     Cancelar
@@ -2063,6 +2464,72 @@ export default function App() {
                   </button>
                 </div>
               </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+      {/* Toasts */}
+      <div className="fixed bottom-6 right-6 z-[100] flex flex-col gap-3">
+        <AnimatePresence>
+          {toasts.map(toast => (
+            <motion.div
+              key={toast.id}
+              initial={{ opacity: 0, x: 50, scale: 0.9 }}
+              animate={{ opacity: 1, x: 0, scale: 1 }}
+              exit={{ opacity: 0, x: 20, scale: 0.9 }}
+              className={`px-6 py-4 rounded-2xl shadow-2xl flex items-center gap-3 min-w-[300px] border backdrop-blur-md ${
+                toast.type === 'success' ? 'bg-emerald-50/90 border-emerald-100 text-emerald-800' :
+                toast.type === 'error' ? 'bg-rose-50/90 border-rose-100 text-rose-800' :
+                'bg-blue-50/90 border-blue-100 text-blue-800'
+              }`}
+            >
+              <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
+                toast.type === 'success' ? 'bg-emerald-100 text-emerald-600' :
+                toast.type === 'error' ? 'bg-rose-100 text-rose-600' :
+                'bg-blue-100 text-blue-600'
+              }`}>
+                {toast.type === 'success' ? <ShieldCheck size={18} /> : 
+                 toast.type === 'error' ? <AlertCircle size={18} /> : 
+                 <Info size={18} />}
+              </div>
+              <span className="font-bold text-sm">{toast.message}</span>
+            </motion.div>
+          ))}
+        </AnimatePresence>
+      </div>
+
+      {/* Confirmation Modal */}
+      <AnimatePresence>
+        {confirmation?.isOpen && (
+          <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[110] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="bg-white rounded-3xl w-full max-w-md p-8 shadow-2xl"
+            >
+              <div className="w-16 h-16 bg-amber-50 text-amber-600 rounded-2xl flex items-center justify-center mb-6">
+                <AlertCircle size={32} />
+              </div>
+              <h3 className="text-2xl font-bold mb-2">{confirmation.title}</h3>
+              <p className="text-slate-500 mb-8">{confirmation.message}</p>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setConfirmation(null)}
+                  className="flex-1 px-6 py-3 border border-slate-200 rounded-xl font-bold text-slate-600 hover:bg-slate-50 transition-all"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={() => {
+                    confirmation.onConfirm();
+                    setConfirmation(null);
+                  }}
+                  className="flex-1 px-6 py-3 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100"
+                >
+                  Confirmar
+                </button>
+              </div>
             </motion.div>
           </div>
         )}

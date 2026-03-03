@@ -18,6 +18,7 @@ export interface Payment {
   received_by: string;
   payment_date: string;
   expiry_date: string | null;
+  notes?: string;
 }
 
 export interface Expense {
