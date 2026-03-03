@@ -38,6 +38,7 @@ import {
   PieChart,
   Pie
 } from 'recharts';
+import { supabase } from './lib/supabase';
 import { Member, Payment, Expense, FinancialStats, InventoryItem } from './types';
 
 type Role = 'Leslie' | 'Jorge' | 'Staff';
@@ -104,21 +105,23 @@ export default function App() {
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      const res = await fetch('/api/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(loginForm)
-      });
-      const data = await res.json();
-      if (data.success) {
-        localStorage.setItem('kinetix_user', JSON.stringify({ username: data.username, role: data.role }));
-        setCurrentRole(data.role);
-        setIsLoggedIn(true);
-        setLoginError('');
-        fetchData();
-      } else {
-        setLoginError(data.error);
+      const { data, error } = await supabase
+        .from('users')
+        .select('*')
+        .eq('username', loginForm.username)
+        .eq('pin', loginForm.pin)
+        .single();
+
+      if (error || !data) {
+        setLoginError('PIN incorrecto');
+        return;
       }
+
+      localStorage.setItem('kinetix_user', JSON.stringify({ username: data.username, role: data.role }));
+      setCurrentRole(data.role);
+      setIsLoggedIn(true);
+      setLoginError('');
+      fetchData();
     } catch (error) {
       setLoginError('Error de conexión');
     }
@@ -131,24 +134,92 @@ export default function App() {
 
   const fetchData = async () => {
     try {
-      const [membersRes, paymentsRes, expensesRes, statsRes, attendanceRes, alertsRes, birthdaysRes, inventoryRes] = await Promise.all([
-        fetch('/api/members'),
-        fetch('/api/payments'),
-        fetch('/api/expenses'),
-        fetch('/api/stats/financial'),
-        fetch('/api/attendance/today'),
-        fetch('/api/alerts/payments'),
-        fetch('/api/alerts/birthdays'),
-        fetch('/api/inventory')
-      ]);
-      setMembers(await membersRes.json());
-      setPayments(await paymentsRes.json());
-      setExpenses(await expensesRes.json());
-      setFinancialStats(await statsRes.json());
-      setAttendance(await attendanceRes.json());
-      setPaymentAlerts(await alertsRes.json());
-      setBirthdayAlerts(await birthdaysRes.json());
-      setInventory(await inventoryRes.json());
+      // 1. Members with payments for last_expiry
+      const { data: membersData } = await supabase
+        .from('members')
+        .select('*, payments(expiry_date)')
+        .order('name');
+      
+      const transformedMembers = (membersData || []).map(m => {
+        const expiries = (m.payments || [])
+          .map((p: any) => p.expiry_date)
+          .filter(Boolean)
+          .sort((a: string, b: string) => new Date(b).getTime() - new Date(a).getTime());
+        return { ...m, last_expiry: expiries[0] || null };
+      });
+      setMembers(transformedMembers);
+
+      // 2. Payments
+      const { data: paymentsData } = await supabase
+        .from('payments')
+        .select('*, members(name)')
+        .order('payment_date', { ascending: false });
+      
+      setPayments((paymentsData || []).map((p: any) => ({
+        ...p,
+        member_name: (Array.isArray(p.members) ? p.members[0]?.name : p.members?.name) || 'Desconocido'
+      })));
+
+      // 3. Expenses
+      const { data: expensesData } = await supabase
+        .from('expenses')
+        .select('*')
+        .order('expense_date', { ascending: false });
+      setExpenses(expensesData || []);
+
+      // 4. Inventory
+      const { data: inventoryData } = await supabase
+        .from('inventory')
+        .select('*')
+        .order('name');
+      setInventory(inventoryData || []);
+
+      // 5. Attendance (Today)
+      const today = new Date().toISOString().split('T')[0];
+      const { data: attendanceData } = await supabase
+        .from('attendance')
+        .select('*, members(name)')
+        .gte('check_in_time', `${today}T00:00:00`)
+        .order('check_in_time', { ascending: false });
+      
+      setAttendance((attendanceData || []).map((a: any) => ({
+        ...a,
+        name: (Array.isArray(a.members) ? a.members[0]?.name : a.members?.name) || 'Desconocido'
+      })));
+
+      // 6. Financial Stats
+      const { data: pData } = await supabase.from('payments').select('amount');
+      const { data: sData } = await supabase.from('sales').select('total_price');
+      const { data: eData } = await supabase.from('expenses').select('amount');
+
+      const totalIncome = (pData?.reduce((acc, curr) => acc + curr.amount, 0) || 0) +
+                          (sData?.reduce((acc, curr) => acc + curr.total_price, 0) || 0);
+      const totalExpenses = eData?.reduce((acc, curr) => acc + curr.amount, 0) || 0;
+      setFinancialStats({
+        total_income: totalIncome,
+        total_expenses: totalExpenses,
+        profit: totalIncome - totalExpenses
+      });
+
+      // 7. Alerts
+      const now = new Date();
+      const next3Days = new Date();
+      next3Days.setDate(now.getDate() + 3);
+
+      const birthdayAlerts = transformedMembers.filter(m => {
+        if (!m.birth_date) return false;
+        const bDay = new Date(m.birth_date);
+        return bDay.getMonth() === now.getMonth() && bDay.getDate() === now.getDate();
+      });
+      setBirthdayAlerts(birthdayAlerts);
+
+      const expiringAlerts = transformedMembers.filter(m => {
+        if (!m.last_expiry) return false;
+        const expiry = new Date(m.last_expiry);
+        return expiry >= now && expiry <= next3Days;
+      });
+      setPaymentAlerts(expiringAlerts);
+
     } catch (error) {
       console.error('Error fetching data:', error);
     }
@@ -156,11 +227,10 @@ export default function App() {
 
   const handleCheckIn = async (memberId: number) => {
     try {
-      await fetch('/api/attendance', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ member_id: memberId })
-      });
+      const { error } = await supabase
+        .from('attendance')
+        .insert([{ member_id: memberId }]);
+      if (error) throw error;
       fetchData();
     } catch (error) {
       console.error('Error during check-in:', error);
@@ -240,26 +310,34 @@ export default function App() {
     e.preventDefault();
     setErrorMsg('');
     try {
-      const method = isEditing ? 'PUT' : 'POST';
-      const url = isEditing ? `/api/members/${editingId}` : '/api/members';
-      
-      const res = await fetch(url, {
-        method,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(newMember)
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setErrorMsg(data.error);
+      let result;
+      if (isEditing) {
+        result = await supabase
+          .from('members')
+          .update(newMember)
+          .eq('id', editingId);
+      } else {
+        result = await supabase
+          .from('members')
+          .insert([newMember]);
+      }
+
+      if (result.error) {
+        if (result.error.code === '23505') {
+          setErrorMsg('Este número de teléfono ya está registrado a otro miembro.');
+        } else {
+          setErrorMsg('Error al guardar miembro.');
+        }
         return;
       }
+
       setNewMember({ name: '', phone: '', email: '', birth_date: '' });
       setShowAddMember(false);
       setIsEditing(false);
       setEditingId(null);
       fetchData();
     } catch (error) {
-      setErrorMsg('Error al conectar con el servidor');
+      setErrorMsg('Error de conexión');
     }
   };
 
@@ -280,17 +358,29 @@ export default function App() {
     try {
       const baseAmount = newPayment.amount;
       const discount = newPayment.discount_type === 'birthday' ? baseAmount * 0.5 : newPayment.discount_amount;
-      
-      await fetch('/api/payments', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ...newPayment,
-          amount: baseAmount - discount,
+      const finalAmount = baseAmount - discount;
+
+      let expiry_date = null;
+      if (newPayment.payment_type === 'monthly') {
+        const d = new Date();
+        d.setMonth(d.getMonth() + (newPayment.months || 1));
+        expiry_date = d.toISOString();
+      }
+
+      const { error } = await supabase
+        .from('payments')
+        .insert([{
+          member_id: newPayment.member_id,
+          amount: finalAmount,
+          payment_type: newPayment.payment_type,
+          discount_type: newPayment.discount_type,
           discount_amount: discount,
-          received_by: newPayment.received_by || currentRole
-        })
-      });
+          received_by: newPayment.received_by || currentRole,
+          expiry_date
+        }]);
+
+      if (error) throw error;
+
       setShowAddPayment(false);
       setSelectedMember(null);
       fetchData();
@@ -302,17 +392,27 @@ export default function App() {
   const handleAddExpense = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      const method = isEditing ? 'PUT' : 'POST';
-      const url = isEditing ? `/api/expenses/${editingId}` : '/api/expenses';
+      let result;
+      if (isEditing) {
+        result = await supabase
+          .from('expenses')
+          .update({
+            description: newExpense.description,
+            amount: newExpense.amount,
+            category: newExpense.category
+          })
+          .eq('id', editingId);
+      } else {
+        result = await supabase
+          .from('expenses')
+          .insert([{
+            ...newExpense,
+            created_by: currentRole
+          }]);
+      }
 
-      await fetch(url, {
-        method,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ...newExpense,
-          created_by: currentRole
-        })
-      });
+      if (result.error) throw result.error;
+
       setNewExpense({ description: '', amount: 0, category: 'other', created_by: '' });
       setShowAddExpense(false);
       setIsEditing(false);
@@ -338,13 +438,20 @@ export default function App() {
   const handleAddInventory = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      const method = isEditing ? 'PUT' : 'POST';
-      const url = isEditing ? `/api/inventory/${editingId}` : '/api/inventory';
-      await fetch(url, {
-        method,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(newInventory)
-      });
+      let result;
+      if (isEditing) {
+        result = await supabase
+          .from('inventory')
+          .update(newInventory)
+          .eq('id', editingId);
+      } else {
+        result = await supabase
+          .from('inventory')
+          .insert([newInventory]);
+      }
+
+      if (result.error) throw result.error;
+
       setNewInventory({ name: '', price: 0, stock: 0, category: 'drinks' });
       setShowAddInventory(false);
       setIsEditing(false);
@@ -358,11 +465,21 @@ export default function App() {
   const handleMakeSale = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      await fetch('/api/sales', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(newSale)
-      });
+      // 1. Register sale
+      const { error: saleError } = await supabase
+        .from('sales')
+        .insert([newSale]);
+      if (saleError) throw saleError;
+
+      // 2. Update stock
+      const item = inventory.find(i => i.id === newSale.item_id);
+      if (item) {
+        await supabase
+          .from('inventory')
+          .update({ stock: item.stock - newSale.quantity })
+          .eq('id', newSale.item_id);
+      }
+
       setNewSale({ item_id: 0, quantity: 1, total_price: 0 });
       setShowMakeSale(false);
       fetchData();
