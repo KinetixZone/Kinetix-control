@@ -133,6 +133,8 @@ export default function App() {
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
+    setIsSubmitting(true);
+    setLoginError('');
     try {
       const { data, error } = await supabase
         .from('users')
@@ -143,6 +145,7 @@ export default function App() {
 
       if (error || !data) {
         setLoginError('PIN incorrecto');
+        setIsSubmitting(false);
         return;
       }
 
@@ -153,6 +156,8 @@ export default function App() {
       fetchData();
     } catch (error) {
       setLoginError('Error de conexión');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -178,11 +183,13 @@ export default function App() {
 
   const handleAddUser = async (e: React.FormEvent) => {
     e.preventDefault();
+    setIsSubmitting(true);
     try {
       // Check if user already exists
       const { data: existingUser } = await supabase.from('users').select('username').eq('username', newUser.username).single();
       if (existingUser) {
         addToast('El usuario ya existe', 'error');
+        setIsSubmitting(false);
         return;
       }
 
@@ -192,8 +199,10 @@ export default function App() {
       setShowAddUser(false);
       setNewUser({ username: '', pin: '', role: 'Coach' });
       fetchData();
-    } catch (error) {
-      addToast('Error al crear usuario', 'error');
+    } catch (error: any) {
+      addToast(error.message || 'Error al crear usuario', 'error');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -380,6 +389,7 @@ export default function App() {
   };
 
   const handleCheckIn = async (memberId: number) => {
+    setIsSubmitting(true);
     try {
       const { error } = await supabase
         .from('attendance')
@@ -387,8 +397,11 @@ export default function App() {
       if (error) throw error;
       addToast('Check-in registrado correctamente');
       fetchData();
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error during check-in:', error);
+      addToast(error.message || 'Error al registrar check-in', 'error');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -464,6 +477,7 @@ export default function App() {
   const handleAddMember = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg('');
+    setIsSubmitting(true);
     try {
       let result;
       if (isEditing) {
@@ -483,6 +497,7 @@ export default function App() {
         } else {
           setErrorMsg('Error al guardar miembro.');
         }
+        setIsSubmitting(false);
         return;
       }
 
@@ -492,8 +507,10 @@ export default function App() {
       setEditingId(null);
       addToast(isEditing ? 'Miembro actualizado' : 'Miembro registrado con éxito');
       fetchData();
-    } catch (error) {
-      setErrorMsg('Error de conexión');
+    } catch (error: any) {
+      setErrorMsg(error.message || 'Error de conexión');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -521,7 +538,14 @@ export default function App() {
     setIsSubmitting(true);
     try {
       const baseAmount = newPayment.amount;
-      const discount = newPayment.discount_type === 'birthday' ? baseAmount * 0.5 : newPayment.discount_amount;
+      let discount = 0;
+      
+      if (newPayment.discount_type === 'birthday') {
+        discount = baseAmount * 0.5;
+      } else if (newPayment.discount_type === 'other') {
+        discount = Number(newPayment.discount_amount) || 0;
+      }
+
       const finalAmount = baseAmount - discount;
 
       if (isNaN(finalAmount) || finalAmount < 0) {
@@ -719,6 +743,7 @@ export default function App() {
       return;
     }
 
+    setIsSubmitting(true);
     try {
       const userData = JSON.parse(localStorage.getItem('kinetix_user') || '{}');
       const targetUsername = selectedUserForPin || userData.username;
@@ -734,6 +759,7 @@ export default function App() {
 
         if (fetchError || !user) {
           setPinStatus({ message: 'PIN actual incorrecto', type: 'error' });
+          setIsSubmitting(false);
           return;
         }
       }
@@ -752,8 +778,10 @@ export default function App() {
         setSelectedUserForPin(null);
         setPinStatus({ message: '', type: '' });
       }, 2000);
-    } catch (error) {
-      setPinStatus({ message: 'Error al actualizar PIN', type: 'error' });
+    } catch (error: any) {
+      setPinStatus({ message: error.message || 'Error al actualizar PIN', type: 'error' });
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -835,9 +863,17 @@ export default function App() {
 
             <button 
               type="submit"
-              className="w-full bg-indigo-600 text-white py-4 rounded-xl font-bold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100"
+              disabled={isSubmitting}
+              className={`w-full bg-indigo-600 text-white py-4 rounded-xl font-bold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100 flex items-center justify-center gap-2 ${isSubmitting ? 'opacity-70 cursor-not-allowed' : ''}`}
             >
-              Entrar al Sistema
+              {isSubmitting ? (
+                <>
+                  <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  Entrando...
+                </>
+              ) : (
+                'Entrar al Sistema'
+              )}
             </button>
           </form>
 
@@ -1328,8 +1364,12 @@ export default function App() {
                     </button>
                     <button 
                       onClick={() => handleCheckIn(m.id)}
-                      className="flex-1 bg-emerald-50 text-emerald-600 py-2 rounded-xl font-bold text-xs"
+                      disabled={isSubmitting}
+                      className={`flex-1 bg-emerald-50 text-emerald-600 py-2 rounded-xl font-bold text-xs flex items-center justify-center gap-1 ${isSubmitting ? 'opacity-50 cursor-not-allowed' : ''}`}
                     >
+                      {isSubmitting ? (
+                        <div className="w-3 h-3 border-2 border-emerald-600/30 border-t-emerald-600 rounded-full animate-spin" />
+                      ) : null}
                       Check-in
                     </button>
                   </div>
@@ -1390,8 +1430,12 @@ export default function App() {
                             </button>
                             <button 
                               onClick={() => handleCheckIn(m.id)}
-                              className="text-emerald-600 hover:text-emerald-800 font-bold text-xs uppercase"
+                              disabled={isSubmitting}
+                              className={`text-emerald-600 hover:text-emerald-800 font-bold text-xs uppercase flex items-center gap-1 ${isSubmitting ? 'opacity-50 cursor-not-allowed' : ''}`}
                             >
+                              {isSubmitting ? (
+                                <div className="w-3 h-3 border-2 border-emerald-600/30 border-t-emerald-600 rounded-full animate-spin" />
+                              ) : null}
                               Check-in
                             </button>
                             {(currentRole === 'Leslie' || currentRole === 'Jorge') && (
@@ -1937,9 +1981,17 @@ export default function App() {
                   </button>
                   <button 
                     type="submit"
-                    className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-xl font-medium hover:bg-blue-700 shadow-sm"
+                    disabled={isSubmitting}
+                    className={`flex-1 px-4 py-2 bg-blue-600 text-white rounded-xl font-medium hover:bg-blue-700 shadow-sm transition-all flex items-center justify-center gap-2 ${isSubmitting ? 'opacity-70 cursor-not-allowed' : ''}`}
                   >
-                    {isEditing ? 'Guardar Cambios' : 'Registrar Miembro'}
+                    {isSubmitting ? (
+                      <>
+                        <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                        Procesando...
+                      </>
+                    ) : (
+                      isEditing ? 'Guardar Cambios' : 'Registrar Miembro'
+                    )}
                   </button>
                 </div>
               </form>
@@ -2034,8 +2086,11 @@ export default function App() {
                     type="number" 
                     step="0.01"
                     className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 outline-none font-mono"
-                    value={newPayment.amount}
-                    onChange={e => setNewPayment({...newPayment, amount: parseFloat(e.target.value)})}
+                    value={newPayment.amount || ''}
+                    onChange={e => {
+                      const val = e.target.value;
+                      setNewPayment({...newPayment, amount: val === '' ? 0 : parseFloat(val)});
+                    }}
                   />
                 </div>
 
@@ -2045,7 +2100,14 @@ export default function App() {
                     <select 
                       className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 outline-none"
                       value={newPayment.discount_type}
-                      onChange={e => setNewPayment({...newPayment, discount_type: e.target.value as any})}
+                      onChange={e => {
+                        const type = e.target.value as any;
+                        setNewPayment({
+                          ...newPayment, 
+                          discount_type: type,
+                          discount_amount: type === 'other' ? newPayment.discount_amount : 0
+                        });
+                      }}
                     >
                       <option value="none">Ninguno</option>
                       <option value="birthday">Cumpleaños (50%)</option>
@@ -2056,8 +2118,11 @@ export default function App() {
                         type="number" 
                         placeholder="Monto $"
                         className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 outline-none"
-                        value={newPayment.discount_amount}
-                        onChange={e => setNewPayment({...newPayment, discount_amount: parseFloat(e.target.value)})}
+                        value={newPayment.discount_amount || ''}
+                        onChange={e => {
+                          const val = e.target.value;
+                          setNewPayment({...newPayment, discount_amount: val === '' ? 0 : parseFloat(val)});
+                        }}
                       />
                     )}
                   </div>
@@ -2454,9 +2519,17 @@ export default function App() {
                   </button>
                   <button 
                     type="submit"
-                    className="flex-1 px-6 py-4 bg-slate-900 text-white rounded-2xl font-bold hover:bg-slate-800 transition-all shadow-lg shadow-slate-900/20"
+                    disabled={isSubmitting}
+                    className={`flex-1 px-6 py-4 bg-slate-900 text-white rounded-2xl font-bold hover:bg-slate-800 transition-all shadow-lg shadow-slate-900/20 flex items-center justify-center gap-2 ${isSubmitting ? 'opacity-70 cursor-not-allowed' : ''}`}
                   >
-                    Crear Usuario
+                    {isSubmitting ? (
+                      <>
+                        <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                        Creando...
+                      </>
+                    ) : (
+                      'Crear Usuario'
+                    )}
                   </button>
                 </div>
               </form>
@@ -2536,9 +2609,17 @@ export default function App() {
                   </button>
                   <button 
                     type="submit"
-                    className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-xl font-medium hover:bg-blue-700 shadow-sm"
+                    disabled={isSubmitting}
+                    className={`flex-1 px-4 py-2 bg-blue-600 text-white rounded-xl font-medium hover:bg-blue-700 shadow-sm transition-all flex items-center justify-center gap-2 ${isSubmitting ? 'opacity-70 cursor-not-allowed' : ''}`}
                   >
-                    Actualizar PIN
+                    {isSubmitting ? (
+                      <>
+                        <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                        Actualizando...
+                      </>
+                    ) : (
+                      'Actualizar PIN'
+                    )}
                   </button>
                 </div>
               </form>
