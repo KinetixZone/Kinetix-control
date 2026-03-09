@@ -302,6 +302,7 @@ export default function App() {
       setIsLoading(false);
     } catch (error) {
       console.error('Error fetching data:', error);
+      setIsLoading(false);
     }
   };
 
@@ -508,16 +509,33 @@ export default function App() {
     setShowAddMember(true);
   };
 
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
   const handleAddPayment = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!newPayment.member_id) {
+      addToast('Por favor selecciona un miembro', 'error');
+      return;
+    }
+
+    setIsSubmitting(true);
     try {
       const baseAmount = newPayment.amount;
       const discount = newPayment.discount_type === 'birthday' ? baseAmount * 0.5 : newPayment.discount_amount;
       const finalAmount = baseAmount - discount;
 
+      if (isNaN(finalAmount) || finalAmount < 0) {
+        addToast('Monto de pago inválido', 'error');
+        setIsSubmitting(false);
+        return;
+      }
+
       let expiry_date = null;
       if (newPayment.payment_type === 'monthly') {
-        const d = new Date();
+        const startDate = selectedMember?.last_expiry && new Date(selectedMember.last_expiry) > new Date()
+          ? new Date(selectedMember.last_expiry)
+          : new Date();
+        const d = new Date(startDate);
         d.setMonth(d.getMonth() + (newPayment.months || 1));
         expiry_date = d.toISOString();
       }
@@ -532,6 +550,7 @@ export default function App() {
           discount_amount: discount,
           received_by: newPayment.received_by || currentRole,
           expiry_date,
+          payment_date: new Date().toISOString(),
           notes: encryptData(newPayment.notes || '')
         }]);
 
@@ -539,15 +558,29 @@ export default function App() {
 
       setShowAddPayment(false);
       setSelectedMember(null);
+      setNewPayment({
+        member_id: 0,
+        amount: 500,
+        payment_type: 'monthly',
+        discount_type: 'none',
+        discount_amount: 0,
+        received_by: '',
+        months: 1,
+        notes: ''
+      });
       addToast('Pago registrado correctamente');
       fetchData();
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error adding payment:', error);
+      addToast(error.message || 'Error al registrar el pago', 'error');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
   const handleAddExpense = async (e: React.FormEvent) => {
     e.preventDefault();
+    setIsSubmitting(true);
     try {
       let result;
       if (isEditing) {
@@ -577,8 +610,11 @@ export default function App() {
       setEditingId(null);
       addToast(isEditing ? 'Gasto actualizado' : 'Gasto registrado');
       fetchData();
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error adding expense:', error);
+      addToast(error.message || 'Error al registrar gasto', 'error');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -613,6 +649,7 @@ export default function App() {
 
   const handleAddInventory = async (e: React.FormEvent) => {
     e.preventDefault();
+    setIsSubmitting(true);
     try {
       let result;
       if (isEditing) {
@@ -632,14 +669,19 @@ export default function App() {
       setShowAddInventory(false);
       setIsEditing(false);
       setEditingId(null);
+      addToast(isEditing ? 'Producto actualizado' : 'Producto registrado');
       fetchData();
-    } catch (error) {
-      console.error('Error saving inventory item');
+    } catch (error: any) {
+      console.error('Error saving inventory item:', error);
+      addToast(error.message || 'Error al guardar producto', 'error');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
   const handleMakeSale = async (e: React.FormEvent) => {
     e.preventDefault();
+    setIsSubmitting(true);
     try {
       // 1. Register sale
       const { error: saleError } = await supabase
@@ -658,9 +700,13 @@ export default function App() {
 
       setNewSale({ item_id: 0, quantity: 1, total_price: 0 });
       setShowMakeSale(false);
+      addToast('Venta registrada con éxito');
       fetchData();
-    } catch (error) {
-      console.error('Error making sale');
+    } catch (error: any) {
+      console.error('Error making sale:', error);
+      addToast(error.message || 'Error al registrar venta', 'error');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -2067,9 +2113,17 @@ export default function App() {
                   </button>
                   <button 
                     type="submit"
-                    className="flex-1 px-4 py-2 bg-indigo-600 text-white rounded-xl font-medium hover:bg-indigo-700 shadow-sm"
+                    disabled={isSubmitting}
+                    className={`flex-1 px-4 py-2 bg-indigo-600 text-white rounded-xl font-medium hover:bg-indigo-700 shadow-sm transition-all flex items-center justify-center gap-2 ${isSubmitting ? 'opacity-70 cursor-not-allowed' : ''}`}
                   >
-                    Confirmar Pago
+                    {isSubmitting ? (
+                      <>
+                        <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                        Procesando...
+                      </>
+                    ) : (
+                      'Confirmar Pago'
+                    )}
                   </button>
                 </div>
               </form>
@@ -2140,9 +2194,17 @@ export default function App() {
                   </button>
                   <button 
                     type="submit"
-                    className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-xl font-medium hover:bg-blue-700 shadow-sm"
+                    disabled={isSubmitting}
+                    className={`flex-1 px-4 py-2 bg-blue-600 text-white rounded-xl font-medium hover:bg-blue-700 shadow-sm transition-all flex items-center justify-center gap-2 ${isSubmitting ? 'opacity-70 cursor-not-allowed' : ''}`}
                   >
-                    {isEditing ? 'Guardar Cambios' : 'Registrar Gasto'}
+                    {isSubmitting ? (
+                      <>
+                        <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                        Procesando...
+                      </>
+                    ) : (
+                      isEditing ? 'Guardar Cambios' : 'Registrar Gasto'
+                    )}
                   </button>
                 </div>
               </form>
@@ -2221,9 +2283,17 @@ export default function App() {
                   </button>
                   <button 
                     type="submit"
-                    className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-xl font-medium hover:bg-blue-700 shadow-sm"
+                    disabled={isSubmitting}
+                    className={`flex-1 px-4 py-2 bg-blue-600 text-white rounded-xl font-medium hover:bg-blue-700 shadow-sm transition-all flex items-center justify-center gap-2 ${isSubmitting ? 'opacity-70 cursor-not-allowed' : ''}`}
                   >
-                    {isEditing ? 'Guardar Cambios' : 'Registrar Producto'}
+                    {isSubmitting ? (
+                      <>
+                        <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                        Procesando...
+                      </>
+                    ) : (
+                      isEditing ? 'Guardar Cambios' : 'Registrar Producto'
+                    )}
                   </button>
                 </div>
               </form>
@@ -2305,9 +2375,17 @@ export default function App() {
                   </button>
                   <button 
                     type="submit"
-                    className="flex-1 px-4 py-2 bg-emerald-600 text-white rounded-xl font-medium hover:bg-emerald-700 shadow-sm"
+                    disabled={isSubmitting}
+                    className={`flex-1 px-4 py-2 bg-emerald-600 text-white rounded-xl font-medium hover:bg-emerald-700 shadow-sm transition-all flex items-center justify-center gap-2 ${isSubmitting ? 'opacity-70 cursor-not-allowed' : ''}`}
                   >
-                    Confirmar Venta
+                    {isSubmitting ? (
+                      <>
+                        <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                        Procesando...
+                      </>
+                    ) : (
+                      'Confirmar Venta'
+                    )}
                   </button>
                 </div>
               </form>
