@@ -4,13 +4,14 @@ export interface Member {
   phone: string;
   email: string;
   birth_date: string;
-  last_expiry: string | null;
+  created_at?: string;
+  last_expiry?: string | null;
 }
 
 export interface Payment {
   id: number;
   member_id: number;
-  member_name: string;
+  member_name?: string;
   amount: number;
   payment_type: 'monthly' | 'visit';
   discount_type: 'birthday' | 'other' | 'none';
@@ -18,7 +19,6 @@ export interface Payment {
   received_by: string;
   payment_date: string;
   expiry_date: string | null;
-  notes?: string;
 }
 
 export interface Expense {
@@ -44,9 +44,24 @@ export interface InventoryItem {
   category: string;
 }
 
+export interface Sale {
+  id: number;
+  item_id: number;
+  quantity: number;
+  total_price: number;
+  sale_date: string;
+}
+
+export interface Attendance {
+  id: number;
+  member_id: number;
+  check_in_time: string;
+  name?: string;
+}
+
 export interface UserProfile {
-  id: string;
-  email: string;
+  id: number;
+  username: string;
+  pin: string;
   role: 'Leslie' | 'Jorge' | 'Staff';
-  name: string;
 }
