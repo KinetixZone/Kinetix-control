@@ -179,7 +179,7 @@ export default function App() {
   };
 
   const [showAddUser, setShowAddUser] = useState(false);
-  const [newUser, setNewUser] = useState({ username: '', pin: '', role: 'Coach' });
+  const [newUser, setNewUser] = useState({ username: '', pin: '', role: 'Staff' });
 
   const handleAddUser = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -197,7 +197,7 @@ export default function App() {
       if (error) throw error;
       addToast(`Usuario ${newUser.username} creado correctamente`);
       setShowAddUser(false);
-      setNewUser({ username: '', pin: '', role: 'Coach' });
+      setNewUser({ username: '', pin: '', role: 'Staff' });
       fetchData();
     } catch (error: any) {
       addToast(error.message || 'Error al crear usuario', 'error');
@@ -393,7 +393,10 @@ export default function App() {
     try {
       const { error } = await supabase
         .from('attendance')
-        .insert([{ member_id: memberId }]);
+        .insert([{ 
+          member_id: memberId,
+          check_in_time: new Date().toISOString()
+        }]);
       if (error) throw error;
       addToast('Check-in registrado correctamente');
       fetchData();
@@ -564,18 +567,20 @@ export default function App() {
         expiry_date = d.toISOString();
       }
 
+      const discountInfo = newPayment.discount_type !== 'none' 
+        ? ` [Descuento: ${newPayment.discount_type === 'birthday' ? 'Cumpleaños (50%)' : 'Otro'} - $${discount.toFixed(2)}]`
+        : '';
+
       const { error } = await supabase
         .from('payments')
         .insert([{
           member_id: newPayment.member_id,
           amount: finalAmount,
           payment_type: newPayment.payment_type,
-          discount_type: newPayment.discount_type,
-          discount_amount: discount,
           received_by: newPayment.received_by || currentRole,
           expiry_date,
           payment_date: new Date().toISOString(),
-          notes: encryptData(newPayment.notes || '')
+          notes: encryptData((newPayment.notes || '') + discountInfo)
         }]);
 
       if (error) throw error;
@@ -622,7 +627,8 @@ export default function App() {
           .insert([{
             ...newExpense,
             description: encryptData(newExpense.description),
-            created_by: currentRole
+            created_by: currentRole,
+            expense_date: new Date().toISOString()
           }]);
       }
 
@@ -710,7 +716,10 @@ export default function App() {
       // 1. Register sale
       const { error: saleError } = await supabase
         .from('sales')
-        .insert([newSale]);
+        .insert([{
+          ...newSale,
+          sale_date: new Date().toISOString()
+        }]);
       if (saleError) throw saleError;
 
       // 2. Update stock
