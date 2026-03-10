@@ -350,6 +350,11 @@ export default function App() {
       'Esta acción eliminará permanentemente al miembro y todo su historial de pagos y asistencias. ¿Deseas continuar?',
       async () => {
         try {
+          // Primero eliminamos los registros relacionados para evitar errores de llave foránea
+          await supabase.from('attendance').delete().eq('member_id', id);
+          await supabase.from('payments').delete().eq('member_id', id);
+          
+          // Ahora eliminamos al miembro
           const { error } = await supabase.from('members').delete().eq('id', id);
           if (error) throw error;
           addToast('Miembro eliminado correctamente');
@@ -672,9 +677,13 @@ export default function App() {
   const handleDeleteInventory = async (id: number) => {
     confirmAction(
       '¿Eliminar Producto?',
-      'Se borrará este producto del inventario. ¿Deseas continuar?',
+      'Se borrará este producto del inventario y su historial de ventas. ¿Deseas continuar?',
       async () => {
         try {
+          // Primero eliminamos las ventas asociadas
+          await supabase.from('sales').delete().eq('item_id', id);
+          
+          // Ahora eliminamos el producto
           const { error } = await supabase.from('inventory').delete().eq('id', id);
           if (error) throw error;
           addToast('Producto eliminado');
