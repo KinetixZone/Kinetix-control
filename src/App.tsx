@@ -94,7 +94,8 @@ export default function App() {
     discount_type: 'none' as 'birthday' | 'other' | 'none',
     discount_amount: 0,
     received_by: '',
-    months: 1
+    months: 1,
+    notes: ''
   });
   const [newExpense, setNewExpense] = useState({
     description: '',
@@ -238,7 +239,8 @@ export default function App() {
       
       const transformedPayments = (paymentsData || []).map((p: any) => ({
         ...p,
-        member_name: (Array.isArray(p.members) ? p.members[0]?.name : p.members?.name) || 'Desconocido'
+        member_name: (Array.isArray(p.members) ? p.members[0]?.name : p.members?.name) || 'Desconocido',
+        notes: p.notes ? decryptData(p.notes) : ''
       }));
       setPayments(transformedPayments);
 
@@ -586,7 +588,8 @@ export default function App() {
           discount_amount: discount,
           received_by: newPayment.received_by || currentRole,
           expiry_date,
-          payment_date: new Date().toISOString()
+          payment_date: new Date().toISOString(),
+          notes: encryptData(newPayment.notes || '')
         }]);
 
       if (error) throw error;
@@ -600,7 +603,8 @@ export default function App() {
         discount_type: 'none',
         discount_amount: 0,
         received_by: '',
-        months: 1
+        months: 1,
+        notes: ''
       });
       addToast('Pago registrado correctamente');
       fetchData();
@@ -1518,6 +1522,7 @@ export default function App() {
                       <th className="px-6 py-3 font-semibold">Monto</th>
                       <th className="px-6 py-3 font-semibold">Tipo</th>
                       <th className="px-6 py-3 font-semibold">Fecha</th>
+                      <th className="px-6 py-3 font-semibold">Notas</th>
                       <th className="px-6 py-3 font-semibold">Recibido por</th>
                       {(currentRole === 'Leslie' || currentRole === 'Jorge') && (
                         <th className="px-6 py-3 font-semibold text-right">Acciones</th>
@@ -1542,6 +1547,9 @@ export default function App() {
                             </span>
                           </td>
                           <td className="px-6 py-4 text-slate-500 text-sm">{new Date(p.payment_date!).toLocaleDateString()}</td>
+                          <td className="px-6 py-4 text-xs text-slate-400 italic max-w-[150px] truncate" title={p.notes}>
+                            {p.notes || '-'}
+                          </td>
                           <td className="px-6 py-4 text-sm text-slate-600">{p.received_by}</td>
                           {(currentRole === 'Leslie' || currentRole === 'Jorge') && (
                             <td className="px-6 py-4 text-right">
@@ -2150,7 +2158,16 @@ export default function App() {
                   />
                 </div>
 
-                {/* Notas removidas por no existir en esquema DB */}
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">Notas (Confidencial)</label>
+                  <textarea 
+                    placeholder="Notas adicionales sobre el pago..."
+                    className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 outline-none text-sm"
+                    rows={2}
+                    value={newPayment.notes}
+                    onChange={e => setNewPayment({...newPayment, notes: e.target.value})}
+                  />
+                </div>
 
                 <div className="bg-indigo-50 p-4 rounded-2xl">
                   <div className="flex justify-between text-sm text-indigo-600 font-medium">
