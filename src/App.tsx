@@ -109,10 +109,17 @@ export default function App() {
   useEffect(() => {
     const savedUser = localStorage.getItem('kinetix_user');
     if (savedUser) {
-      const user = JSON.parse(savedUser);
-      setCurrentRole(user.role);
-      setIsLoggedIn(true);
-      fetchData();
+      try {
+        const user = JSON.parse(savedUser);
+        if (user && user.role) {
+          setCurrentRole(user.role);
+          setIsLoggedIn(true);
+          fetchData();
+        }
+      } catch (e) {
+        console.error('Error parsing saved user:', e);
+        localStorage.removeItem('kinetix_user');
+      }
     }
   }, []);
 
@@ -795,8 +802,8 @@ export default function App() {
   };
 
   const filteredMembers = members.filter(m => 
-    m.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    m.phone.includes(searchTerm)
+    (m.name?.toLowerCase() || '').includes(searchTerm.toLowerCase()) ||
+    (m.phone || '').includes(searchTerm)
   );
 
   const isExpired = (dateStr: string | null) => {
@@ -811,7 +818,7 @@ export default function App() {
   };
 
   const filteredPayments = payments.filter(p => {
-    const matchesSearch = p.member_name.toLowerCase().includes(paymentSearchTerm.toLowerCase());
+    const matchesSearch = (p.member_name?.toLowerCase() || '').includes(paymentSearchTerm.toLowerCase());
     const matchesMonth = paymentMonthFilter ? p.payment_date?.startsWith(paymentMonthFilter) : true;
     return matchesSearch && matchesMonth;
   });
@@ -1185,18 +1192,18 @@ export default function App() {
                     <div className="space-y-1">
                       <div className="text-sm text-slate-500 font-medium">Balance Total</div>
                       <div className="text-5xl font-black text-slate-900 tracking-tighter">
-                        ${financialStats.profit.toFixed(2)}
+                        ${(financialStats.profit || 0).toFixed(2)}
                       </div>
                     </div>
                   </div>
                   <div className="grid grid-cols-2 gap-4 mt-8 pt-8 border-t border-slate-50">
                     <div>
                       <div className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider mb-1">Ingresos</div>
-                      <div className="text-xl font-bold text-slate-900">${financialStats.total_income.toFixed(2)}</div>
+                      <div className="text-xl font-bold text-slate-900">${(financialStats.total_income || 0).toFixed(2)}</div>
                     </div>
                     <div>
                       <div className="text-[10px] font-bold text-rose-600 uppercase tracking-wider mb-1">Gastos</div>
-                      <div className="text-xl font-bold text-slate-900">${financialStats.total_expenses.toFixed(2)}</div>
+                      <div className="text-xl font-bold text-slate-900">${(financialStats.total_expenses || 0).toFixed(2)}</div>
                     </div>
                   </div>
                 </div>
@@ -1282,7 +1289,7 @@ export default function App() {
                         payments.slice(0, 5).map(p => (
                           <tr key={p.id} className="hover:bg-slate-50/50 transition-all group">
                             <td className="px-8 py-5 font-bold text-slate-700">{p.member_name}</td>
-                            <td className="px-8 py-5 font-mono text-sm font-black text-emerald-600">${p.amount.toFixed(2)}</td>
+                            <td className="px-8 py-5 font-mono text-sm font-black text-emerald-600">${(p.amount || 0).toFixed(2)}</td>
                             <td className="px-8 py-5 text-slate-400 text-xs font-medium">{new Date(p.payment_date!).toLocaleDateString()}</td>
                           </tr>
                         ))
@@ -1531,7 +1538,7 @@ export default function App() {
                       filteredPayments.map(p => (
                         <tr key={p.id} className="hover:bg-slate-50 transition-all">
                           <td className="px-6 py-4 font-medium">{p.member_name}</td>
-                          <td className="px-6 py-4 font-mono text-sm font-bold text-emerald-600">${p.amount.toFixed(2)}</td>
+                          <td className="px-6 py-4 font-mono text-sm font-bold text-emerald-600">${(p.amount || 0).toFixed(2)}</td>
                           <td className="px-6 py-4">
                             <span className={`px-2 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${p.payment_type === 'monthly' ? 'bg-blue-50 text-blue-600' : 'bg-amber-50 text-amber-600'}`}>
                               {p.payment_type === 'monthly' ? 'Mensualidad' : 'Visita'}
@@ -1586,7 +1593,7 @@ export default function App() {
                           {e.category}
                         </span>
                       </td>
-                      <td className="px-6 py-4 font-mono text-sm font-bold text-rose-600">-${e.amount.toFixed(2)}</td>
+                      <td className="px-6 py-4 font-mono text-sm font-bold text-rose-600">-${(e.amount || 0).toFixed(2)}</td>
                       <td className="px-6 py-4 text-sm text-slate-600">{e.created_by}</td>
                       <td className="px-6 py-4 text-slate-500 text-sm">{new Date(e.expense_date).toLocaleDateString()}</td>
                       <td className="px-6 py-4 text-right">
@@ -1768,7 +1775,7 @@ export default function App() {
               <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
                 <div className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Valor de Inventario</div>
                 <div className="text-3xl font-bold text-blue-600">
-                  ${inventory.reduce((acc, curr) => acc + (curr.price * curr.stock), 0).toFixed(2)}
+                  ${inventory.reduce((acc, curr) => acc + ((curr.price || 0) * (curr.stock || 0)), 0).toFixed(2)}
                 </div>
               </div>
               <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
@@ -1811,7 +1818,7 @@ export default function App() {
                               {item.category}
                             </span>
                           </td>
-                          <td className="px-6 py-4 font-mono text-sm font-bold text-blue-600">${item.price.toFixed(2)}</td>
+                          <td className="px-6 py-4 font-mono text-sm font-bold text-blue-600">${(item.price || 0).toFixed(2)}</td>
                           <td className="px-6 py-4">
                             <span className={`font-bold ${item.stock < 5 ? 'text-rose-600' : 'text-slate-600'}`}>
                               {item.stock} unidades
