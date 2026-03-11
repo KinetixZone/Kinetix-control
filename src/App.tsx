@@ -187,7 +187,7 @@ export default function App() {
   };
 
   const [showAddUser, setShowAddUser] = useState(false);
-  const [newUser, setNewUser] = useState({ username: '', pin: '', role: 'Staff' });
+  const [newUser, setNewUser] = useState({ username: '', pin: '', role: 'Coach' });
 
   const handleAddUser = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -205,7 +205,7 @@ export default function App() {
       if (error) throw error;
       addToast(`Usuario ${newUser.username} creado correctamente`);
       setShowAddUser(false);
-      setNewUser({ username: '', pin: '', role: 'Staff' });
+      setNewUser({ username: '', pin: '', role: 'Coach' });
       fetchData();
     } catch (error: any) {
       addToast(error.message || 'Error al crear usuario', 'error');
@@ -338,13 +338,17 @@ export default function App() {
       '¿Eliminar Usuario?',
       `Se borrará permanentemente el acceso para ${username}. ¿Deseas continuar?`,
       async () => {
+        setIsSubmitting(true);
         try {
           const { error } = await supabase.from('users').delete().eq('username', username);
           if (error) throw error;
           addToast(`Usuario ${username} eliminado`);
           fetchData();
-        } catch (error) {
-          addToast('Error al eliminar usuario', 'error');
+        } catch (error: any) {
+          console.error('Error deleting user:', error);
+          addToast(error.message || 'Error al eliminar usuario', 'error');
+        } finally {
+          setIsSubmitting(false);
         }
       }
     );
@@ -420,15 +424,21 @@ export default function App() {
           // Antes de eliminar, recuperamos la venta para devolver el stock
           const { data: saleData } = await supabase.from('sales').select('*').eq('id', id).single();
           
+          const { error } = await supabase.from('sales').delete().eq('id', id);
+          if (error) throw error;
+          
+          // Intentamos restaurar el stock si es posible
           if (saleData) {
-            const { data: invData } = await supabase.from('inventory').select('stock').eq('id', saleData.item_id).single();
-            if (invData) {
-              await supabase.from('inventory').update({ stock: invData.stock + saleData.quantity }).eq('id', saleData.item_id);
+            try {
+              const { data: invData } = await supabase.from('inventory').select('stock').eq('id', saleData.item_id).single();
+              if (invData) {
+                await supabase.from('inventory').update({ stock: invData.stock + saleData.quantity }).eq('id', saleData.item_id);
+              }
+            } catch (stockErr) {
+              console.error('Error restoring stock:', stockErr);
             }
           }
 
-          const { error } = await supabase.from('sales').delete().eq('id', id);
-          if (error) throw error;
           addToast('Venta eliminada y stock restaurado');
           fetchData();
         } catch (error: any) {
@@ -460,8 +470,9 @@ export default function App() {
           if (error) throw error;
           addToast('Gasto eliminado');
           fetchData();
-        } catch (error) {
-          addToast('Error al eliminar gasto', 'error');
+        } catch (error: any) {
+          console.error('Error deleting expense:', error);
+          addToast(error.message || 'Error al eliminar gasto', 'error');
         }
       }
     );
@@ -574,7 +585,7 @@ export default function App() {
       }
 
       if (result.error) {
-        if (result.error.code === '23505') {
+        if (result.error?.code === '23505') {
           setErrorMsg('Este número de teléfono ya está registrado a otro miembro.');
         } else {
           setErrorMsg('Error al guardar miembro.');
@@ -833,7 +844,7 @@ export default function App() {
         if (saleError) throw saleError;
 
         // 3. Adjust stock
-        if (oldSale) {
+        if (oldSale && oldSale.quantity !== undefined) {
           const item = inventory.find(i => i.id === newSale.item_id);
           if (item) {
             const stockDiff = oldSale.quantity - newSale.quantity;
@@ -2083,7 +2094,10 @@ export default function App() {
                   <p className="text-sm text-slate-500">Administra los accesos y PINs del personal</p>
                 </div>
                 <button 
-                  onClick={() => setShowAddUser(true)}
+                  onClick={() => {
+                    setNewUser({ username: '', pin: '', role: 'Coach' });
+                    setShowAddUser(true);
+                  }}
                   className="flex items-center gap-2 bg-slate-900 text-white px-4 py-2 rounded-xl hover:bg-slate-800 transition-all font-bold text-sm"
                 >
                   <Plus size={18} />
@@ -2743,7 +2757,10 @@ export default function App() {
                 <div className="flex gap-3 pt-4">
                   <button 
                     type="button"
-                    onClick={() => setShowAddUser(false)}
+                    onClick={() => {
+                      setShowAddUser(false);
+                      setNewUser({ username: '', pin: '', role: 'Coach' });
+                    }}
                     className="flex-1 px-6 py-4 bg-slate-50 text-slate-600 rounded-2xl font-bold hover:bg-slate-100 transition-all"
                   >
                     Cancelar
