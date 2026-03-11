@@ -58,12 +58,13 @@ export default function App() {
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
   const [attendance, setAttendance] = useState<any[]>([]);
+  const [sales, setSales] = useState<any[]>([]);
   const [users, setUsers] = useState<any[]>([]);
   const [selectedUserForPin, setSelectedUserForPin] = useState<string | null>(null);
   const [paymentAlerts, setPaymentAlerts] = useState<any[]>([]);
   const [birthdayAlerts, setBirthdayAlerts] = useState<any[]>([]);
   const [financialStats, setFinancialStats] = useState<FinancialStats>({ total_income: 0, total_expenses: 0, profit: 0 });
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'members' | 'payments' | 'expenses' | 'analytics' | 'attendance' | 'inventory' | 'users'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'members' | 'payments' | 'expenses' | 'analytics' | 'attendance' | 'inventory' | 'users' | 'sales'>('dashboard');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [showAddMember, setShowAddMember] = useState(false);
   const [showAddPayment, setShowAddPayment] = useState(false);
@@ -278,8 +279,13 @@ export default function App() {
 
       // 6. Financial Stats
       const { data: pData } = await supabase.from('payments').select('amount');
-      const { data: sData } = await supabase.from('sales').select('total_price');
+      const { data: sData } = await supabase.from('sales').select('*, inventory(name)');
       const { data: eData } = await supabase.from('expenses').select('amount');
+
+      setSales((sData || []).map((s: any) => ({
+        ...s,
+        item_name: (Array.isArray(s.inventory) ? s.inventory[0]?.name : s.inventory?.name) || 'Producto Desconocido'
+      })));
 
       const totalIncome = (pData?.reduce((acc, curr) => acc + curr.amount, 0) || 0) +
                           (sData?.reduce((acc, curr) => acc + curr.total_price, 0) || 0);
@@ -351,16 +357,21 @@ export default function App() {
       async () => {
         try {
           // Primero eliminamos los registros relacionados para evitar errores de llave foránea
-          await supabase.from('attendance').delete().eq('member_id', id);
-          await supabase.from('payments').delete().eq('member_id', id);
+          const { error: attError } = await supabase.from('attendance').delete().eq('member_id', id);
+          if (attError) console.error('Error deleting attendance:', attError);
+          
+          const { error: payError } = await supabase.from('payments').delete().eq('member_id', id);
+          if (payError) console.error('Error deleting payments:', payError);
           
           // Ahora eliminamos al miembro
           const { error } = await supabase.from('members').delete().eq('id', id);
           if (error) throw error;
+          
           addToast('Miembro eliminado correctamente');
           fetchData();
-        } catch (error) {
-          addToast('Error al eliminar miembro', 'error');
+        } catch (error: any) {
+          console.error('Error deleting member:', error);
+          addToast(error.message || 'Error al eliminar miembro', 'error');
         }
       }
     );
@@ -376,11 +387,67 @@ export default function App() {
           if (error) throw error;
           addToast('Pago eliminado');
           fetchData();
-        } catch (error) {
-          addToast('Error al eliminar pago', 'error');
+        } catch (error: any) {
+          console.error('Error deleting payment:', error);
+          addToast(error.message || 'Error al eliminar pago', 'error');
         }
       }
     );
+  };
+
+  const handleEditPayment = (payment: Payment) => {
+    setSelectedMember(members.find(m => m.id === payment.member_id) || null);
+    setNewPayment({
+      member_id: payment.member_id,
+      amount: payment.amount,
+      payment_type: payment.payment_type,
+      discount_type: payment.discount_type,
+      discount_amount: payment.discount_amount,
+      received_by: payment.received_by,
+      notes: payment.notes || ''
+    });
+    setIsEditing(true);
+    setEditingId(payment.id);
+    setShowAddPayment(true);
+  };
+
+  const handleDeleteSale = async (id: number) => {
+    confirmAction(
+      '¿Eliminar Venta?',
+      'Se borrará permanentemente este registro de venta. ¿Deseas continuar?',
+      async () => {
+        try {
+          // Antes de eliminar, recuperamos la venta para devolver el stock
+          const { data: saleData } = await supabase.from('sales').select('*').eq('id', id).single();
+          
+          if (saleData) {
+            const { data: invData } = await supabase.from('inventory').select('stock').eq('id', saleData.item_id).single();
+            if (invData) {
+              await supabase.from('inventory').update({ stock: invData.stock + saleData.quantity }).eq('id', saleData.item_id);
+            }
+          }
+
+          const { error } = await supabase.from('sales').delete().eq('id', id);
+          if (error) throw error;
+          addToast('Venta eliminada y stock restaurado');
+          fetchData();
+        } catch (error: any) {
+          console.error('Error deleting sale:', error);
+          addToast(error.message || 'Error al eliminar venta', 'error');
+        }
+      }
+    );
+  };
+
+  const handleEditSale = (sale: any) => {
+    setNewSale({
+      item_id: sale.item_id,
+      quantity: sale.quantity,
+      total_price: sale.total_price
+    });
+    setIsEditing(true);
+    setEditingId(sale.id);
+    setShowMakeSale(true);
   };
 
   const handleDeleteExpense = async (id: number) => {
@@ -583,21 +650,39 @@ export default function App() {
         ? ` [Descuento: ${newPayment.discount_type === 'birthday' ? 'Cumpleaños (50%)' : 'Otro'} - $${discount.toFixed(2)}]`
         : '';
 
-      const { error } = await supabase
-        .from('payments')
-        .insert([{
-          member_id: newPayment.member_id,
-          amount: finalAmount,
-          payment_type: newPayment.payment_type,
-          discount_type: newPayment.discount_type,
-          discount_amount: discount,
-          received_by: newPayment.received_by || currentRole,
-          expiry_date,
-          payment_date: new Date().toISOString(),
-          notes: encryptData(newPayment.notes || '')
-        }]);
-
-      if (error) throw error;
+      if (isEditing && editingId) {
+        const { error } = await supabase
+          .from('payments')
+          .update({
+            member_id: newPayment.member_id,
+            amount: finalAmount,
+            payment_type: newPayment.payment_type,
+            discount_type: newPayment.discount_type,
+            discount_amount: discount,
+            received_by: newPayment.received_by || currentRole,
+            expiry_date,
+            notes: encryptData(newPayment.notes || '')
+          })
+          .eq('id', editingId);
+        if (error) throw error;
+        addToast('Pago actualizado correctamente');
+      } else {
+        const { error } = await supabase
+          .from('payments')
+          .insert([{
+            member_id: newPayment.member_id,
+            amount: finalAmount,
+            payment_type: newPayment.payment_type,
+            discount_type: newPayment.discount_type,
+            discount_amount: discount,
+            received_by: newPayment.received_by || currentRole,
+            expiry_date,
+            payment_date: new Date().toISOString(),
+            notes: encryptData(newPayment.notes || '')
+          }]);
+        if (error) throw error;
+        addToast('Pago registrado correctamente');
+      }
 
       setShowAddPayment(false);
       setSelectedMember(null);
@@ -611,7 +696,8 @@ export default function App() {
         months: 1,
         notes: ''
       });
-      addToast('Pago registrado correctamente');
+      setIsEditing(false);
+      setEditingId(null);
       fetchData();
     } catch (error: any) {
       console.error('Error adding payment:', error);
@@ -731,31 +817,62 @@ export default function App() {
     e.preventDefault();
     setIsSubmitting(true);
     try {
-      // 1. Register sale
-      const { error: saleError } = await supabase
-        .from('sales')
-        .insert([{
-          ...newSale,
-          sale_date: new Date().toISOString()
-        }]);
-      if (saleError) throw saleError;
+      if (isEditing && editingId) {
+        // 1. Get old sale to adjust stock
+        const { data: oldSale } = await supabase.from('sales').select('*').eq('id', editingId).single();
+        
+        // 2. Update sale
+        const { error: saleError } = await supabase
+          .from('sales')
+          .update({
+            item_id: newSale.item_id,
+            quantity: newSale.quantity,
+            total_price: newSale.total_price
+          })
+          .eq('id', editingId);
+        if (saleError) throw saleError;
 
-      // 2. Update stock
-      const item = inventory.find(i => i.id === newSale.item_id);
-      if (item) {
-        await supabase
-          .from('inventory')
-          .update({ stock: item.stock - newSale.quantity })
-          .eq('id', newSale.item_id);
+        // 3. Adjust stock
+        if (oldSale) {
+          const item = inventory.find(i => i.id === newSale.item_id);
+          if (item) {
+            const stockDiff = oldSale.quantity - newSale.quantity;
+            await supabase
+              .from('inventory')
+              .update({ stock: item.stock + stockDiff })
+              .eq('id', newSale.item_id);
+          }
+        }
+        addToast('Venta actualizada');
+      } else {
+        // 1. Register sale
+        const { error: saleError } = await supabase
+          .from('sales')
+          .insert([{
+            ...newSale,
+            sale_date: new Date().toISOString()
+          }]);
+        if (saleError) throw saleError;
+
+        // 2. Update stock
+        const item = inventory.find(i => i.id === newSale.item_id);
+        if (item) {
+          await supabase
+            .from('inventory')
+            .update({ stock: item.stock - newSale.quantity })
+            .eq('id', newSale.item_id);
+        }
+        addToast('Venta registrada con éxito');
       }
 
       setNewSale({ item_id: 0, quantity: 1, total_price: 0 });
       setShowMakeSale(false);
-      addToast('Venta registrada con éxito');
+      setIsEditing(false);
+      setEditingId(null);
       fetchData();
     } catch (error: any) {
       console.error('Error making sale:', error);
-      addToast(error.message || 'Error al registrar venta', 'error');
+      addToast(error.message || 'Error al procesar venta', 'error');
     } finally {
       setIsSubmitting(false);
     }
@@ -979,7 +1096,7 @@ export default function App() {
           </button>
           <button 
             onClick={() => { setActiveTab('payments'); setIsMobileMenuOpen(false); }}
-            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'payments' ? 'bg-blue-50 text-blue-600' : 'text-slate-500 hover:bg-slate-50'} ${currentRole === 'Staff' ? 'hidden' : ''}`}
+            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'payments' ? 'bg-blue-50 text-blue-600' : 'text-slate-500 hover:bg-slate-50'}`}
           >
             <CreditCard size={20} />
             <span className="font-medium">Pagos</span>
@@ -1010,6 +1127,13 @@ export default function App() {
           >
             <Fingerprint size={20} />
             <span className="font-medium">Asistencia</span>
+          </button>
+          <button 
+            onClick={() => { setActiveTab('sales'); setIsMobileMenuOpen(false); }}
+            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'sales' ? 'bg-blue-50 text-blue-600' : 'text-slate-500 hover:bg-slate-50'}`}
+          >
+            <ShoppingBag size={20} />
+            <span className="font-medium">Ventas</span>
           </button>
           
           {(currentRole === 'Leslie' || currentRole === 'Jorge') && (
@@ -1075,6 +1199,9 @@ export default function App() {
               {activeTab === 'expenses' && 'Control de Gastos'}
               {activeTab === 'analytics' && 'Análisis de Rentabilidad'}
               {activeTab === 'attendance' && 'Asistencia de Hoy'}
+              {activeTab === 'sales' && 'Historial de Ventas'}
+              {activeTab === 'inventory' && 'Control de Inventario'}
+              {activeTab === 'users' && 'Gestión de Personal'}
             </h2>
             <p className="text-slate-500 mt-1">
               {new Date().toLocaleDateString('es-ES', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
@@ -1533,9 +1660,7 @@ export default function App() {
                       <th className="px-6 py-3 font-semibold">Fecha</th>
                       <th className="px-6 py-3 font-semibold">Notas</th>
                       <th className="px-6 py-3 font-semibold">Recibido por</th>
-                      {(currentRole === 'Leslie' || currentRole === 'Jorge') && (
-                        <th className="px-6 py-3 font-semibold text-right">Acciones</th>
-                      )}
+                      <th className="px-6 py-3 font-semibold text-right">Acciones</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-50">
@@ -1560,17 +1685,26 @@ export default function App() {
                             {p.notes || '-'}
                           </td>
                           <td className="px-6 py-4 text-sm text-slate-600">{p.received_by}</td>
-                          {(currentRole === 'Leslie' || currentRole === 'Jorge') && (
-                            <td className="px-6 py-4 text-right">
+                          <td className="px-6 py-4 text-right">
+                            <div className="flex gap-2 justify-end">
                               <button 
-                                onClick={() => handleDeletePayment(p.id)}
-                                className="text-rose-400 hover:text-rose-600 p-2 rounded-lg hover:bg-rose-50 transition-all"
-                                title="Eliminar Pago"
+                                onClick={() => handleEditPayment(p)}
+                                className="text-slate-400 hover:text-slate-600 p-2 rounded-lg hover:bg-slate-50 transition-all"
+                                title="Editar Pago"
                               >
-                                <Trash2 size={16} />
+                                <Edit size={16} />
                               </button>
-                            </td>
-                          )}
+                              {(currentRole === 'Leslie' || currentRole === 'Jorge') && (
+                                <button 
+                                  onClick={() => handleDeletePayment(p.id)}
+                                  className="text-rose-400 hover:text-rose-600 p-2 rounded-lg hover:bg-rose-50 transition-all"
+                                  title="Eliminar Pago"
+                                >
+                                  <Trash2 size={16} />
+                                </button>
+                              )}
+                            </div>
+                          </td>
                         </tr>
                       ))
                     )}
@@ -1780,6 +1914,74 @@ export default function App() {
             </div>
           </div>
         )}
+        {activeTab === 'sales' && (
+          <div className="space-y-6">
+            <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+              <div className="p-6 border-b border-slate-100 flex justify-between items-center">
+                <div>
+                  <h3 className="font-bold text-lg">Historial de Ventas</h3>
+                  <p className="text-sm text-slate-500">Registro de todos los productos vendidos</p>
+                </div>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left">
+                  <thead className="bg-slate-50 text-slate-400 text-xs uppercase tracking-wider">
+                    <tr>
+                      <th className="px-6 py-3 font-semibold">Producto</th>
+                      <th className="px-6 py-3 font-semibold">Cantidad</th>
+                      <th className="px-6 py-3 font-semibold">Total</th>
+                      <th className="px-6 py-3 font-semibold">Fecha</th>
+                      <th className="px-6 py-3 font-semibold text-right">Acciones</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-50">
+                    {sales.length === 0 ? (
+                      <tr>
+                        <td colSpan={5} className="px-6 py-12 text-center">
+                          <div className="flex flex-col items-center gap-2 text-slate-400">
+                            <ShoppingBag size={48} className="opacity-20" />
+                            <p className="font-medium">No hay ventas registradas</p>
+                          </div>
+                        </td>
+                      </tr>
+                    ) : (
+                      sales.map(s => (
+                        <tr key={s.id} className="hover:bg-slate-50 transition-all">
+                          <td className="px-6 py-4 font-medium">{s.item_name}</td>
+                          <td className="px-6 py-4 text-sm text-slate-600">{s.quantity}</td>
+                          <td className="px-6 py-4 font-mono text-sm font-bold text-emerald-600">${(s.total_price || 0).toFixed(2)}</td>
+                          <td className="px-6 py-4 text-sm text-slate-600">
+                            {new Date(s.sale_date).toLocaleDateString()} {new Date(s.sale_date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </td>
+                          <td className="px-6 py-4 text-right">
+                            <div className="flex gap-2 justify-end">
+                              <button 
+                                onClick={() => handleEditSale(s)}
+                                className="text-slate-400 hover:text-slate-600 p-2 rounded-lg hover:bg-slate-50 transition-all"
+                                title="Editar Venta"
+                              >
+                                <Edit size={16} />
+                              </button>
+                              {(currentRole === 'Leslie' || currentRole === 'Jorge') && (
+                                <button 
+                                  onClick={() => handleDeleteSale(s.id)}
+                                  className="text-rose-400 hover:text-rose-600 p-2 rounded-lg hover:bg-rose-50 transition-all"
+                                  title="Eliminar Venta"
+                                >
+                                  <Trash2 size={16} />
+                                </button>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        )}
         {activeTab === 'inventory' && (
           <div className="space-y-6">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -1853,12 +2055,14 @@ export default function App() {
                               >
                                 Editar
                               </button>
-                              <button 
-                                onClick={() => handleDeleteInventory(item.id)}
-                                className="text-rose-400 hover:text-rose-600 font-bold text-xs uppercase"
-                              >
-                                Eliminar
-                              </button>
+                              {(currentRole === 'Leslie' || currentRole === 'Jorge') && (
+                                <button 
+                                  onClick={() => handleDeleteInventory(item.id)}
+                                  className="text-rose-400 hover:text-rose-600 font-bold text-xs uppercase"
+                                >
+                                  Eliminar
+                                </button>
+                              )}
                             </div>
                           </td>
                         </tr>
