@@ -191,27 +191,34 @@ export default function App() {
 
   const handleAddUser = async (e: React.FormEvent) => {
     e.preventDefault();
-    setIsSubmitting(true);
-    try {
-      // Check if user already exists
-      const { data: existingUser } = await supabase.from('users').select('username').eq('username', newUser.username).single();
-      if (existingUser) {
-        addToast('El usuario ya existe', 'error');
-        setIsSubmitting(false);
-        return;
-      }
+    
+    confirmAction(
+      '¿Crear Usuario?',
+      `Se creará una nueva cuenta para ${newUser.username}. ¿Deseas continuar?`,
+      async () => {
+        setIsSubmitting(true);
+        try {
+          // Check if user already exists
+          const { data: existingUser } = await supabase.from('users').select('username').eq('username', newUser.username).single();
+          if (existingUser) {
+            addToast('El usuario ya existe', 'error');
+            setIsSubmitting(false);
+            return;
+          }
 
-      const { error } = await supabase.from('users').insert([newUser]);
-      if (error) throw error;
-      addToast(`Usuario ${newUser.username} creado correctamente`);
-      setShowAddUser(false);
-      setNewUser({ username: '', pin: '', role: 'Coach' });
-      fetchData();
-    } catch (error: any) {
-      addToast(error.message || 'Error al crear usuario', 'error');
-    } finally {
-      setIsSubmitting(false);
-    }
+          const { error } = await supabase.from('users').insert([newUser]);
+          if (error) throw error;
+          addToast(`Usuario ${newUser.username} creado correctamente`);
+          setShowAddUser(false);
+          setNewUser({ username: '', pin: '', role: 'Coach' });
+          fetchData();
+        } catch (error: any) {
+          addToast(error.message || 'Error al crear usuario', 'error');
+        } finally {
+          setIsSubmitting(false);
+        }
+      }
+    );
   };
 
   const fetchData = async () => {
@@ -355,19 +362,28 @@ export default function App() {
   };
 
   const handleDeleteMember = async (id: number) => {
+    const memberToDelete = members.find(m => m.id === id);
+    
     confirmAction(
       '¿Eliminar Miembro?',
-      'Esta acción eliminará permanentemente al miembro y todo su historial de pagos y asistencias. ¿Deseas continuar?',
+      `Esta acción eliminará permanentemente a ${memberToDelete?.name || 'este miembro'} y todo su historial. Esta acción no se puede deshacer.`,
       async () => {
+        setIsSubmitting(true);
         try {
-          // Primero eliminamos los registros relacionados para evitar errores de llave foránea
+          // 1. Delete attendance
           const { error: attError } = await supabase.from('attendance').delete().eq('member_id', id);
-          if (attError) console.error('Error deleting attendance:', attError);
+          if (attError) {
+            console.error('Error deleting attendance:', attError);
+            // We continue even if there's an error here, unless it's a critical one
+          }
           
+          // 2. Delete payments
           const { error: payError } = await supabase.from('payments').delete().eq('member_id', id);
-          if (payError) console.error('Error deleting payments:', payError);
+          if (payError) {
+            console.error('Error deleting payments:', payError);
+          }
           
-          // Ahora eliminamos al miembro
+          // 3. Delete member
           const { error } = await supabase.from('members').delete().eq('id', id);
           if (error) throw error;
           
@@ -375,7 +391,9 @@ export default function App() {
           fetchData();
         } catch (error: any) {
           console.error('Error deleting member:', error);
-          addToast(error.message || 'Error al eliminar miembro', 'error');
+          addToast(`Error: ${error.message || 'No se pudo eliminar'}`, 'error');
+        } finally {
+          setIsSubmitting(false);
         }
       }
     );
@@ -569,42 +587,57 @@ export default function App() {
 
   const handleAddMember = async (e: React.FormEvent) => {
     e.preventDefault();
-    setErrorMsg('');
-    setIsSubmitting(true);
-    try {
-      let result;
-      if (isEditing) {
-        result = await supabase
-          .from('members')
-          .update(newMember)
-          .eq('id', editingId);
-      } else {
-        result = await supabase
-          .from('members')
-          .insert([newMember]);
-      }
-
-      if (result.error) {
-        if (result.error?.code === '23505') {
-          setErrorMsg('Este número de teléfono ya está registrado a otro miembro.');
-        } else {
-          setErrorMsg('Error al guardar miembro.');
-        }
-        setIsSubmitting(false);
-        return;
-      }
-
-      setNewMember({ name: '', phone: '', email: '', birth_date: '' });
-      setShowAddMember(false);
-      setIsEditing(false);
-      setEditingId(null);
-      addToast(isEditing ? 'Miembro actualizado' : 'Miembro registrado con éxito');
-      fetchData();
-    } catch (error: any) {
-      setErrorMsg(error.message || 'Error de conexión');
-    } finally {
-      setIsSubmitting(false);
+    
+    if (!newMember.name.trim() || !newMember.phone.trim()) {
+      addToast('Nombre y teléfono son obligatorios', 'error');
+      return;
     }
+
+    confirmAction(
+      isEditing ? '¿Guardar Cambios?' : '¿Registrar Miembro?',
+      isEditing ? 'Se actualizará la información del miembro. ¿Deseas continuar?' : 'Se creará un nuevo registro de miembro. ¿Deseas continuar?',
+      async () => {
+        setErrorMsg('');
+        setIsSubmitting(true);
+        try {
+          let result;
+          if (isEditing) {
+            result = await supabase
+              .from('members')
+              .update(newMember)
+              .eq('id', editingId);
+          } else {
+            result = await supabase
+              .from('members')
+              .insert([newMember]);
+          }
+
+          if (result.error) {
+            if (result.error?.code === '23505') {
+              setErrorMsg('Este número de teléfono ya está registrado a otro miembro.');
+              addToast('El teléfono ya existe', 'error');
+            } else {
+              setErrorMsg('Error al guardar miembro: ' + result.error.message);
+              addToast('Error al guardar', 'error');
+            }
+            setIsSubmitting(false);
+            return;
+          }
+
+          setNewMember({ name: '', phone: '', email: '', birth_date: '' });
+          setShowAddMember(false);
+          setIsEditing(false);
+          setEditingId(null);
+          addToast(isEditing ? 'Miembro actualizado' : 'Miembro registrado con éxito');
+          fetchData();
+        } catch (error: any) {
+          setErrorMsg(error.message || 'Error de conexión');
+          addToast('Error de conexión', 'error');
+        } finally {
+          setIsSubmitting(false);
+        }
+      }
+    );
   };
 
   const handleEditMember = (member: Member) => {
@@ -628,135 +661,149 @@ export default function App() {
       return;
     }
 
-    setIsSubmitting(true);
-    try {
-      const baseAmount = newPayment.amount;
-      let discount = 0;
-      
-      if (newPayment.discount_type === 'birthday') {
-        discount = baseAmount * 0.5;
-      } else if (newPayment.discount_type === 'other') {
-        discount = Number(newPayment.discount_amount) || 0;
-      }
-
-      const finalAmount = baseAmount - discount;
-
-      if (isNaN(finalAmount) || finalAmount < 0) {
-        addToast('Monto de pago inválido', 'error');
-        setIsSubmitting(false);
-        return;
-      }
-
-      let expiry_date = null;
-      if (newPayment.payment_type === 'monthly') {
-        const startDate = selectedMember?.last_expiry && new Date(selectedMember.last_expiry) > new Date()
-          ? new Date(selectedMember.last_expiry)
-          : new Date();
-        const d = new Date(startDate);
-        d.setMonth(d.getMonth() + (newPayment.months || 1));
-        expiry_date = d.toISOString();
-      }
-
-      const discountInfo = newPayment.discount_type !== 'none' 
-        ? ` [Descuento: ${newPayment.discount_type === 'birthday' ? 'Cumpleaños (50%)' : 'Otro'} - $${discount.toFixed(2)}]`
-        : '';
-
-      if (isEditing && editingId) {
-        const { error } = await supabase
-          .from('payments')
-          .update({
-            member_id: newPayment.member_id,
-            amount: finalAmount,
-            payment_type: newPayment.payment_type,
-            discount_type: newPayment.discount_type,
-            discount_amount: discount,
-            received_by: newPayment.received_by || currentRole,
-            expiry_date,
-            notes: encryptData(newPayment.notes || '')
-          })
-          .eq('id', editingId);
-        if (error) throw error;
-        addToast('Pago actualizado correctamente');
-      } else {
-        const { error } = await supabase
-          .from('payments')
-          .insert([{
-            member_id: newPayment.member_id,
-            amount: finalAmount,
-            payment_type: newPayment.payment_type,
-            discount_type: newPayment.discount_type,
-            discount_amount: discount,
-            received_by: newPayment.received_by || currentRole,
-            expiry_date,
-            payment_date: new Date().toISOString(),
-            notes: encryptData(newPayment.notes || '')
-          }]);
-        if (error) throw error;
-        addToast('Pago registrado correctamente');
-      }
-
-      setShowAddPayment(false);
-      setSelectedMember(null);
-      setNewPayment({
-        member_id: 0,
-        amount: 500,
-        payment_type: 'monthly',
-        discount_type: 'none',
-        discount_amount: 0,
-        received_by: '',
-        months: 1,
-        notes: ''
-      });
-      setIsEditing(false);
-      setEditingId(null);
-      fetchData();
-    } catch (error: any) {
-      console.error('Error adding payment:', error);
-      addToast(error.message || 'Error al registrar el pago', 'error');
-    } finally {
-      setIsSubmitting(false);
+    if (newPayment.amount <= 0) {
+      addToast('El monto debe ser mayor a 0', 'error');
+      return;
     }
+
+    confirmAction(
+      isEditing ? '¿Actualizar Pago?' : '¿Registrar Pago?',
+      isEditing ? 'Se modificarán los datos del pago. ¿Deseas continuar?' : 'Se registrará un nuevo pago para este miembro. ¿Deseas continuar?',
+      async () => {
+        setIsSubmitting(true);
+        try {
+          const baseAmount = Number(newPayment.amount);
+          let discount = 0;
+          
+          if (newPayment.discount_type === 'birthday') {
+            discount = baseAmount * 0.5;
+          } else if (newPayment.discount_type === 'other') {
+            discount = Number(newPayment.discount_amount) || 0;
+          }
+
+          const finalAmount = baseAmount - discount;
+
+          if (isNaN(finalAmount) || finalAmount < 0) {
+            addToast('Monto de pago inválido', 'error');
+            setIsSubmitting(false);
+            return;
+          }
+
+          let expiry_date = null;
+          if (newPayment.payment_type === 'monthly') {
+            const startDate = selectedMember?.last_expiry && new Date(selectedMember.last_expiry) > new Date()
+              ? new Date(selectedMember.last_expiry)
+              : new Date();
+            const d = new Date(startDate);
+            d.setMonth(d.getMonth() + (Number(newPayment.months) || 1));
+            expiry_date = d.toISOString();
+          }
+
+          if (isEditing && editingId) {
+            const { error } = await supabase
+              .from('payments')
+              .update({
+                member_id: newPayment.member_id,
+                amount: finalAmount,
+                payment_type: newPayment.payment_type,
+                discount_type: newPayment.discount_type,
+                discount_amount: discount,
+                received_by: newPayment.received_by || currentRole,
+                expiry_date,
+                notes: encryptData(newPayment.notes || '')
+              })
+              .eq('id', editingId);
+            if (error) throw error;
+            addToast('Pago actualizado correctamente');
+          } else {
+            const { error } = await supabase
+              .from('payments')
+              .insert([{
+                member_id: newPayment.member_id,
+                amount: finalAmount,
+                payment_type: newPayment.payment_type,
+                discount_type: newPayment.discount_type,
+                discount_amount: discount,
+                received_by: newPayment.received_by || currentRole,
+                expiry_date,
+                payment_date: new Date().toISOString(),
+                notes: encryptData(newPayment.notes || '')
+              }]);
+            if (error) throw error;
+            addToast('Pago registrado correctamente');
+          }
+
+          setShowAddPayment(false);
+          setSelectedMember(null);
+          setNewPayment({
+            member_id: 0,
+            amount: 500,
+            payment_type: 'monthly',
+            discount_type: 'none',
+            discount_amount: 0,
+            received_by: '',
+            months: 1,
+            notes: ''
+          });
+          setIsEditing(false);
+          setEditingId(null);
+          fetchData();
+        } catch (error: any) {
+          console.error('Error adding payment:', error);
+          addToast(`Error: ${error.message || 'No se pudo registrar'}`, 'error');
+        } finally {
+          setIsSubmitting(false);
+        }
+      }
+    );
   };
 
   const handleAddExpense = async (e: React.FormEvent) => {
     e.preventDefault();
-    setIsSubmitting(true);
-    try {
-      let result;
-      if (isEditing) {
-        result = await supabase
-          .from('expenses')
-          .update({
-            description: encryptData(newExpense.description),
-            amount: newExpense.amount,
-            category: newExpense.category
-          })
-          .eq('id', editingId);
-      } else {
-        result = await supabase
-          .from('expenses')
-          .insert([{
-            ...newExpense,
-            description: encryptData(newExpense.description),
-            created_by: currentRole,
-            expense_date: new Date().toISOString()
-          }]);
+    
+    confirmAction(
+      isEditing ? '¿Actualizar Gasto?' : '¿Registrar Gasto?',
+      isEditing ? 'Se modificarán los datos del gasto. ¿Deseas continuar?' : 'Se registrará un nuevo gasto. ¿Deseas continuar?',
+      async () => {
+        setIsSubmitting(true);
+        try {
+          let result;
+          if (isEditing) {
+            result = await supabase
+              .from('expenses')
+              .update({
+                description: encryptData(newExpense.description),
+                amount: newExpense.amount,
+                category: newExpense.category
+              })
+              .eq('id', editingId);
+          } else {
+            result = await supabase
+              .from('expenses')
+              .insert([{
+                ...newExpense,
+                description: encryptData(newExpense.description),
+                created_by: currentRole,
+                expense_date: new Date().toISOString()
+              }]);
+          }
+
+          if (result.error) throw result.error;
+
+          setNewExpense({ description: '', amount: 0, category: 'other', created_by: '' });
+          setShowAddExpense(false);
+          setIsEditing(false);
+          setEditingId(null);
+          addToast(isEditing ? 'Gasto actualizado' : 'Gasto registrado');
+          fetchData();
+        } catch (error: any) {
+          console.error('Error adding expense:', error);
+          addToast(error.message || 'Error al registrar gasto', 'error');
+        } finally {
+          setIsSubmitting(false);
+        }
       }
-
-      if (result.error) throw result.error;
-
-      setNewExpense({ description: '', amount: 0, category: 'other', created_by: '' });
-      setShowAddExpense(false);
-      setIsEditing(false);
-      setEditingId(null);
-      addToast(isEditing ? 'Gasto actualizado' : 'Gasto registrado');
-      fetchData();
-    } catch (error: any) {
-      console.error('Error adding expense:', error);
-      addToast(error.message || 'Error al registrar gasto', 'error');
-    } finally {
-      setIsSubmitting(false);
-    }
+    );
   };
 
   const handleEditExpense = (expense: Expense) => {
@@ -794,99 +841,125 @@ export default function App() {
 
   const handleAddInventory = async (e: React.FormEvent) => {
     e.preventDefault();
-    setIsSubmitting(true);
-    try {
-      let result;
-      if (isEditing) {
-        result = await supabase
-          .from('inventory')
-          .update(newInventory)
-          .eq('id', editingId);
-      } else {
-        result = await supabase
-          .from('inventory')
-          .insert([newInventory]);
+    
+    confirmAction(
+      isEditing ? '¿Actualizar Producto?' : '¿Registrar Producto?',
+      isEditing ? 'Se modificarán los datos del producto. ¿Deseas continuar?' : 'Se añadirá un nuevo producto al inventario. ¿Deseas continuar?',
+      async () => {
+        setIsSubmitting(true);
+        try {
+          let result;
+          if (isEditing) {
+            result = await supabase
+              .from('inventory')
+              .update(newInventory)
+              .eq('id', editingId);
+          } else {
+            result = await supabase
+              .from('inventory')
+              .insert([newInventory]);
+          }
+
+          if (result.error) throw result.error;
+
+          setNewInventory({ name: '', price: 0, stock: 0, category: 'drinks' });
+          setShowAddInventory(false);
+          setIsEditing(false);
+          setEditingId(null);
+          addToast(isEditing ? 'Producto actualizado' : 'Producto registrado');
+          fetchData();
+        } catch (error: any) {
+          console.error('Error saving inventory item:', error);
+          addToast(error.message || 'Error al guardar producto', 'error');
+        } finally {
+          setIsSubmitting(false);
+        }
       }
+    );
+  };
 
-      if (result.error) throw result.error;
-
-      setNewInventory({ name: '', price: 0, stock: 0, category: 'drinks' });
-      setShowAddInventory(false);
-      setIsEditing(false);
-      setEditingId(null);
-      addToast(isEditing ? 'Producto actualizado' : 'Producto registrado');
-      fetchData();
-    } catch (error: any) {
-      console.error('Error saving inventory item:', error);
-      addToast(error.message || 'Error al guardar producto', 'error');
-    } finally {
-      setIsSubmitting(false);
-    }
+  const handleEditInventory = (item: InventoryItem) => {
+    setNewInventory({
+      name: item.name,
+      price: item.price,
+      stock: item.stock,
+      category: item.category
+    });
+    setIsEditing(true);
+    setEditingId(item.id);
+    setShowAddInventory(true);
   };
 
   const handleMakeSale = async (e: React.FormEvent) => {
     e.preventDefault();
-    setIsSubmitting(true);
-    try {
-      if (isEditing && editingId) {
-        // 1. Get old sale to adjust stock
-        const { data: oldSale } = await supabase.from('sales').select('*').eq('id', editingId).single();
-        
-        // 2. Update sale
-        const { error: saleError } = await supabase
-          .from('sales')
-          .update({
-            item_id: newSale.item_id,
-            quantity: newSale.quantity,
-            total_price: newSale.total_price
-          })
-          .eq('id', editingId);
-        if (saleError) throw saleError;
+    
+    confirmAction(
+      isEditing ? '¿Actualizar Venta?' : '¿Procesar Venta?',
+      isEditing ? 'Se modificarán los datos de la venta. ¿Deseas continuar?' : 'Se registrará la venta y se descontará del stock. ¿Deseas continuar?',
+      async () => {
+        setIsSubmitting(true);
+        try {
+          if (isEditing && editingId) {
+            // 1. Get old sale to adjust stock
+            const { data: oldSale } = await supabase.from('sales').select('*').eq('id', editingId).single();
+            
+            // 2. Update sale
+            const { error: saleError } = await supabase
+              .from('sales')
+              .update({
+                item_id: newSale.item_id,
+                quantity: newSale.quantity,
+                total_price: newSale.total_price
+              })
+              .eq('id', editingId);
+            if (saleError) throw saleError;
 
-        // 3. Adjust stock
-        if (oldSale && oldSale.quantity !== undefined) {
-          const item = inventory.find(i => i.id === newSale.item_id);
-          if (item) {
-            const stockDiff = oldSale.quantity - newSale.quantity;
-            await supabase
-              .from('inventory')
-              .update({ stock: item.stock + stockDiff })
-              .eq('id', newSale.item_id);
+            // 3. Adjust stock
+            if (oldSale && oldSale.quantity !== undefined) {
+              const item = inventory.find(i => i.id === newSale.item_id);
+              if (item) {
+                const stockDiff = oldSale.quantity - newSale.quantity;
+                await supabase
+                  .from('inventory')
+                  .update({ stock: item.stock + stockDiff })
+                  .eq('id', newSale.item_id);
+              }
+            }
+            addToast('Venta actualizada');
+          } else {
+            // 1. Register sale
+            const { error: saleError } = await supabase
+              .from('sales')
+              .insert([{
+                ...newSale,
+                sale_date: new Date().toISOString()
+              }]);
+            if (saleError) throw saleError;
+
+            // 2. Update stock
+            const item = inventory.find(i => i.id === newSale.item_id);
+            if (item) {
+              await supabase
+                .from('inventory')
+                .update({ stock: item.stock - newSale.quantity })
+                .eq('id', newSale.item_id);
+            }
+            addToast('Venta registrada con éxito');
           }
-        }
-        addToast('Venta actualizada');
-      } else {
-        // 1. Register sale
-        const { error: saleError } = await supabase
-          .from('sales')
-          .insert([{
-            ...newSale,
-            sale_date: new Date().toISOString()
-          }]);
-        if (saleError) throw saleError;
 
-        // 2. Update stock
-        const item = inventory.find(i => i.id === newSale.item_id);
-        if (item) {
-          await supabase
-            .from('inventory')
-            .update({ stock: item.stock - newSale.quantity })
-            .eq('id', newSale.item_id);
+          setNewSale({ item_id: 0, quantity: 1, total_price: 0 });
+          setShowMakeSale(false);
+          setIsEditing(false);
+          setEditingId(null);
+          fetchData();
+        } catch (error: any) {
+          console.error('Error making sale:', error);
+          addToast(error.message || 'Error al procesar venta', 'error');
+        } finally {
+          setIsSubmitting(false);
         }
-        addToast('Venta registrada con éxito');
       }
-
-      setNewSale({ item_id: 0, quantity: 1, total_price: 0 });
-      setShowMakeSale(false);
-      setIsEditing(false);
-      setEditingId(null);
-      fetchData();
-    } catch (error: any) {
-      console.error('Error making sale:', error);
-      addToast(error.message || 'Error al procesar venta', 'error');
-    } finally {
-      setIsSubmitting(false);
-    }
+    );
   };
 
   const handleChangePin = async (e: React.FormEvent) => {
@@ -1527,6 +1600,14 @@ export default function App() {
                     >
                       Editar
                     </button>
+                    {(currentRole === 'Leslie' || currentRole === 'Jorge') && (
+                      <button 
+                        onClick={() => handleDeleteMember(m.id)}
+                        className="flex-1 bg-rose-50 text-rose-600 py-2 rounded-xl font-bold text-xs"
+                      >
+                        Eliminar
+                      </button>
+                    )}
                     <button 
                       onClick={() => handleCheckIn(m.id)}
                       disabled={isSubmitting}
@@ -1654,7 +1735,60 @@ export default function App() {
               </div>
             </div>
 
-            <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+            {/* Mobile Cards View */}
+            <div className="grid grid-cols-1 gap-4 lg:hidden">
+              {filteredPayments.length === 0 ? (
+                <div className="bg-white p-8 rounded-2xl border border-slate-100 text-center text-slate-400">
+                  No se encontraron pagos con los filtros aplicados
+                </div>
+              ) : (
+                filteredPayments.map(p => (
+                  <div key={p.id} className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm space-y-4">
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <h4 className="font-bold text-slate-900">{p.member_name}</h4>
+                        <p className="text-xs text-slate-400">{new Date(p.payment_date!).toLocaleDateString()}</p>
+                      </div>
+                      <span className={`px-2 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${p.payment_type === 'monthly' ? 'bg-blue-50 text-blue-600' : 'bg-amber-50 text-amber-600'}`}>
+                        {p.payment_type === 'monthly' ? 'Mensualidad' : 'Visita'}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-2xl font-black text-emerald-600">${(p.amount || 0).toFixed(2)}</span>
+                      <div className="text-right">
+                        <div className="text-[10px] text-slate-400 uppercase font-bold">Recibido por</div>
+                        <div className="text-xs font-bold text-slate-600">{p.received_by}</div>
+                      </div>
+                    </div>
+                    {p.notes && (
+                      <div className="p-3 bg-slate-50 rounded-xl text-xs text-slate-500 italic">
+                        {p.notes}
+                      </div>
+                    )}
+                    <div className="flex gap-2 pt-2">
+                      <button 
+                        onClick={() => handleEditPayment(p)}
+                        className="flex-1 bg-slate-50 text-slate-600 py-2 rounded-xl font-bold text-xs flex items-center justify-center gap-2"
+                      >
+                        <Edit size={14} />
+                        Editar
+                      </button>
+                      {(currentRole === 'Leslie' || currentRole === 'Jorge') && (
+                        <button 
+                          onClick={() => handleDeletePayment(p.id)}
+                          className="flex-1 bg-rose-50 text-rose-600 py-2 rounded-xl font-bold text-xs flex items-center justify-center gap-2"
+                        >
+                          <Trash2 size={14} />
+                          Eliminar
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+
+            <div className="hidden lg:block bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
               <div className="p-6 border-b border-slate-100">
                 <h3 className="font-bold text-lg">Historial de Pagos</h3>
                 <p className="text-sm text-slate-500">
@@ -1727,7 +1861,54 @@ export default function App() {
         )}
 
         {activeTab === 'expenses' && (currentRole === 'Leslie' || currentRole === 'Jorge') && (
-          <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+          <div className="space-y-4">
+            {/* Mobile Cards View */}
+            <div className="grid grid-cols-1 gap-4 lg:hidden">
+              {expenses.length === 0 ? (
+                <div className="bg-white p-8 rounded-2xl border border-slate-100 text-center text-slate-400">
+                  No hay gastos registrados
+                </div>
+              ) : (
+                expenses.map(e => (
+                  <div key={e.id} className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm space-y-4">
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <h4 className="font-bold text-slate-900">{e.description}</h4>
+                        <p className="text-xs text-slate-400">{new Date(e.expense_date).toLocaleDateString()}</p>
+                      </div>
+                      <span className="px-2 py-1 bg-slate-100 text-slate-600 rounded-full text-[10px] font-bold uppercase tracking-wider">
+                        {e.category}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-2xl font-black text-rose-600">-${(e.amount || 0).toFixed(2)}</span>
+                      <div className="text-right">
+                        <div className="text-[10px] text-slate-400 uppercase font-bold">Por</div>
+                        <div className="text-xs font-bold text-slate-600">{e.created_by}</div>
+                      </div>
+                    </div>
+                    <div className="flex gap-2 pt-2">
+                      <button 
+                        onClick={() => handleEditExpense(e)}
+                        className="flex-1 bg-slate-50 text-slate-600 py-2 rounded-xl font-bold text-xs flex items-center justify-center gap-2"
+                      >
+                        <Edit size={14} />
+                        Editar
+                      </button>
+                      <button 
+                        onClick={() => handleDeleteExpense(e.id)}
+                        className="flex-1 bg-rose-50 text-rose-600 py-2 rounded-xl font-bold text-xs flex items-center justify-center gap-2"
+                      >
+                        <Trash2 size={14} />
+                        Eliminar
+                      </button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+
+            <div className="hidden lg:block bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
             <div className="overflow-x-auto">
               <table className="w-full text-left">
                 <thead className="bg-slate-50 text-slate-400 text-xs uppercase tracking-wider">
@@ -1776,7 +1957,8 @@ export default function App() {
               </table>
             </div>
           </div>
-        )}
+        </div>
+      )}
 
         {activeTab === 'analytics' && (currentRole === 'Leslie' || currentRole === 'Jorge') && (
           <div className="space-y-8">
@@ -1927,7 +2109,52 @@ export default function App() {
         )}
         {activeTab === 'sales' && (
           <div className="space-y-6">
-            <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+            {/* Mobile Cards View */}
+            <div className="grid grid-cols-1 gap-4 lg:hidden">
+              {sales.length === 0 ? (
+                <div className="bg-white p-8 rounded-2xl border border-slate-100 text-center text-slate-400">
+                  No hay ventas registradas
+                </div>
+              ) : (
+                sales.map(s => (
+                  <div key={s.id} className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm space-y-4">
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <h4 className="font-bold text-slate-900">{s.item_name}</h4>
+                        <p className="text-xs text-slate-400">
+                          {new Date(s.sale_date).toLocaleDateString()} {new Date(s.sale_date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </p>
+                      </div>
+                      <span className="text-xl font-black text-emerald-600">${(s.total_price || 0).toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between items-center p-3 bg-slate-50 rounded-xl">
+                      <span className="text-xs font-bold text-slate-400 uppercase">Cantidad</span>
+                      <span className="font-black text-slate-900">{s.quantity} unidades</span>
+                    </div>
+                    <div className="flex gap-2 pt-2">
+                      <button 
+                        onClick={() => handleEditSale(s)}
+                        className="flex-1 bg-slate-50 text-slate-600 py-2 rounded-xl font-bold text-xs flex items-center justify-center gap-2"
+                      >
+                        <Edit size={14} />
+                        Editar
+                      </button>
+                      {(currentRole === 'Leslie' || currentRole === 'Jorge') && (
+                        <button 
+                          onClick={() => handleDeleteSale(s.id)}
+                          className="flex-1 bg-rose-50 text-rose-600 py-2 rounded-xl font-bold text-xs flex items-center justify-center gap-2"
+                        >
+                          <Trash2 size={14} />
+                          Eliminar
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+
+            <div className="hidden lg:block bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
               <div className="p-6 border-b border-slate-100 flex justify-between items-center">
                 <div>
                   <h3 className="font-bold text-lg">Historial de Ventas</h3>
@@ -2010,7 +2237,54 @@ export default function App() {
               </div>
             </div>
 
-            <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+            {/* Mobile Cards View */}
+            <div className="grid grid-cols-1 gap-4 lg:hidden">
+              {inventory.length === 0 ? (
+                <div className="bg-white p-8 rounded-2xl border border-slate-100 text-center text-slate-400">
+                  No hay productos en inventario
+                </div>
+              ) : (
+                inventory.map(item => (
+                  <div key={item.id} className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm space-y-4">
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <h4 className="font-bold text-slate-900">{item.name}</h4>
+                        <span className="px-2 py-1 bg-slate-100 text-slate-600 rounded-full text-[10px] font-bold uppercase tracking-wider">
+                          {item.category}
+                        </span>
+                      </div>
+                      <span className="text-xl font-black text-blue-600">${(item.price || 0).toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between items-center p-3 bg-slate-50 rounded-xl">
+                      <span className="text-xs font-bold text-slate-400 uppercase">Stock Disponible</span>
+                      <span className={`font-black ${item.stock < 5 ? 'text-rose-600' : 'text-slate-900'}`}>
+                        {item.stock} unidades
+                      </span>
+                    </div>
+                    <div className="flex gap-2 pt-2">
+                      <button 
+                        onClick={() => handleEditInventory(item)}
+                        className="flex-1 bg-slate-50 text-slate-600 py-2 rounded-xl font-bold text-xs flex items-center justify-center gap-2"
+                      >
+                        <Edit size={14} />
+                        Editar
+                      </button>
+                      {(currentRole === 'Leslie' || currentRole === 'Jorge') && (
+                        <button 
+                          onClick={() => handleDeleteInventory(item.id)}
+                          className="flex-1 bg-rose-50 text-rose-600 py-2 rounded-xl font-bold text-xs flex items-center justify-center gap-2"
+                        >
+                          <Trash2 size={14} />
+                          Eliminar
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+
+            <div className="hidden lg:block bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
               <div className="p-6 border-b border-slate-100">
                 <h3 className="font-bold text-lg">Control de Inventario</h3>
                 <p className="text-sm text-slate-500">Gestión de productos y suplementos</p>
@@ -2051,17 +2325,7 @@ export default function App() {
                           <td className="px-6 py-4">
                             <div className="flex gap-2">
                               <button 
-                                onClick={() => {
-                                  setNewInventory({
-                                    name: item.name,
-                                    price: item.price,
-                                    stock: item.stock,
-                                    category: item.category
-                                  });
-                                  setIsEditing(true);
-                                  setEditingId(item.id);
-                                  setShowAddInventory(true);
-                                }}
+                                onClick={() => handleEditInventory(item)}
                                 className="text-blue-600 hover:text-blue-800 font-bold text-xs uppercase"
                               >
                                 Editar
@@ -2908,7 +3172,7 @@ export default function App() {
       {/* Confirmation Modal */}
       <AnimatePresence>
         {confirmation?.isOpen && (
-          <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[110] flex items-center justify-center p-4">
+          <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[999] flex items-center justify-center p-4">
             <motion.div
               initial={{ opacity: 0, scale: 0.95, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
@@ -2932,9 +3196,17 @@ export default function App() {
                     confirmation.onConfirm();
                     setConfirmation(null);
                   }}
-                  className="flex-1 px-6 py-3 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100"
+                  disabled={isSubmitting}
+                  className={`flex-1 px-6 py-3 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100 flex items-center justify-center gap-2 ${isSubmitting ? 'opacity-70 cursor-not-allowed' : ''}`}
                 >
-                  Confirmar
+                  {isSubmitting ? (
+                    <>
+                      <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                      Procesando...
+                    </>
+                  ) : (
+                    'Confirmar'
+                  )}
                 </button>
               </div>
             </motion.div>
