@@ -1587,37 +1587,37 @@ export default function App() {
                       {m.last_expiry ? new Date(m.last_expiry).toLocaleDateString() : 'N/A'}
                     </span>
                   </div>
-                  <div className="flex gap-2 pt-2">
+                  <div className="grid grid-cols-2 gap-2 pt-2">
                     <button 
                       onClick={() => { setSelectedMember(m); setNewPayment({ ...newPayment, member_id: m.id }); setShowAddPayment(true); }}
-                      className="flex-1 bg-blue-50 text-blue-600 py-2 rounded-xl font-bold text-xs"
+                      className="bg-blue-50 text-blue-600 py-2 rounded-xl font-bold text-xs"
                     >
                       Pagar
                     </button>
                     <button 
                       onClick={() => handleEditMember(m)}
-                      className="flex-1 bg-slate-50 text-slate-600 py-2 rounded-xl font-bold text-xs"
+                      className="bg-slate-50 text-slate-600 py-2 rounded-xl font-bold text-xs"
                     >
                       Editar
                     </button>
-                    {(currentRole === 'Leslie' || currentRole === 'Jorge') && (
-                      <button 
-                        onClick={() => handleDeleteMember(m.id)}
-                        className="flex-1 bg-rose-50 text-rose-600 py-2 rounded-xl font-bold text-xs"
-                      >
-                        Eliminar
-                      </button>
-                    )}
                     <button 
                       onClick={() => handleCheckIn(m.id)}
                       disabled={isSubmitting}
-                      className={`flex-1 bg-emerald-50 text-emerald-600 py-2 rounded-xl font-bold text-xs flex items-center justify-center gap-1 ${isSubmitting ? 'opacity-50 cursor-not-allowed' : ''}`}
+                      className={`bg-emerald-50 text-emerald-600 py-2 rounded-xl font-bold text-xs flex items-center justify-center gap-1 ${isSubmitting ? 'opacity-50 cursor-not-allowed' : ''}`}
                     >
                       {isSubmitting ? (
                         <div className="w-3 h-3 border-2 border-emerald-600/30 border-t-emerald-600 rounded-full animate-spin" />
                       ) : null}
                       Check-in
                     </button>
+                    {(currentRole === 'Leslie' || currentRole === 'Jorge') && (
+                      <button 
+                        onClick={() => handleDeleteMember(m.id)}
+                        className="bg-rose-50 text-rose-600 py-2 rounded-xl font-bold text-xs"
+                      >
+                        Eliminar
+                      </button>
+                    )}
                   </div>
                 </div>
               ))}
@@ -2073,7 +2073,26 @@ export default function App() {
                   </button>
                 )}
               </div>
-              <div className="overflow-x-auto">
+              {/* Mobile Cards View */}
+              <div className="grid grid-cols-1 gap-4 lg:hidden p-4">
+                {attendance.length === 0 ? (
+                  <div className="bg-white p-8 rounded-2xl border border-slate-100 text-center text-slate-400">
+                    No hay asistencias registradas hoy
+                  </div>
+                ) : (
+                  attendance.map(a => (
+                    <div key={a.id} className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm flex justify-between items-center">
+                      <div className="font-bold text-slate-900">{a.name}</div>
+                      <div className="text-sm text-slate-500 font-mono">
+                        {new Date(a.check_in_time).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+
+              {/* Desktop Table View */}
+              <div className="hidden lg:block overflow-x-auto">
                 <table className="w-full text-left">
                   <thead className="bg-slate-50 text-slate-400 text-xs uppercase tracking-wider">
                     <tr>
@@ -2368,7 +2387,41 @@ export default function App() {
                   Nuevo Usuario
                 </button>
               </div>
-              <div className="overflow-x-auto">
+              {/* Mobile Cards View */}
+              <div className="grid grid-cols-1 gap-4 lg:hidden p-4">
+                {users.map(u => (
+                  <div key={u.username} className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm space-y-4">
+                    <div className="flex justify-between items-center">
+                      <h4 className="font-bold text-slate-900">{u.username}</h4>
+                      <span className={`px-2 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${u.role === 'Leslie' ? 'bg-indigo-50 text-indigo-600' : u.role === 'Jorge' ? 'bg-blue-50 text-blue-600' : 'bg-slate-100 text-slate-600'}`}>
+                        {u.role}
+                      </span>
+                    </div>
+                    <div className="flex gap-2 pt-2">
+                      <button 
+                        onClick={() => {
+                          setSelectedUserForPin(u.username);
+                          setShowChangePin(true);
+                        }}
+                        className="flex-1 bg-indigo-50 text-indigo-600 py-2 rounded-xl font-bold text-xs"
+                      >
+                        Cambiar PIN
+                      </button>
+                      {u.username !== 'Leslie' && u.username !== 'Jorge' && (
+                        <button 
+                          onClick={() => handleDeleteUser(u.username)}
+                          className="flex-1 bg-rose-50 text-rose-600 py-2 rounded-xl font-bold text-xs"
+                        >
+                          Eliminar
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Desktop Table View */}
+              <div className="hidden lg:block overflow-x-auto">
                 <table className="w-full text-left">
                   <thead className="bg-slate-50 text-slate-400 text-xs uppercase tracking-wider">
                     <tr>
