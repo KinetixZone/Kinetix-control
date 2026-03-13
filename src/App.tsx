@@ -26,7 +26,8 @@ import {
   Lock,
   Trash2,
   Edit,
-  Info
+  Info,
+  FileText
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
@@ -82,6 +83,13 @@ export default function App() {
   const [searchTerm, setSearchTerm] = useState('');
   const [paymentSearchTerm, setPaymentSearchTerm] = useState('');
   const [paymentMonthFilter, setPaymentMonthFilter] = useState('');
+  const [paymentUserFilter, setPaymentUserFilter] = useState('');
+  const [paymentYearFilter, setPaymentYearFilter] = useState('');
+  const [expenseMonthFilter, setExpenseMonthFilter] = useState('');
+  const [expenseUserFilter, setExpenseUserFilter] = useState('');
+  const [expenseYearFilter, setExpenseYearFilter] = useState('');
+  const [saleMonthFilter, setSaleMonthFilter] = useState('');
+  const [saleYearFilter, setSaleYearFilter] = useState('');
   const [selectedMember, setSelectedMember] = useState<Member | null>(null);
   const [currentRole, setCurrentRole] = useState<Role>('Leslie');
   const [errorMsg, setErrorMsg] = useState('');
@@ -557,6 +565,41 @@ export default function App() {
     link.click();
     document.body.removeChild(link);
   };
+
+  const exportToXML = (data: any[], filename: string, rootName: string, itemName: string) => {
+    let xmlContent = `<?xml version="1.0" encoding="UTF-8"?>\n<${rootName}>\n`;
+    
+    data.forEach(item => {
+      xmlContent += `  <${itemName}>\n`;
+      Object.entries(item).forEach(([key, value]) => {
+        const cleanValue = value === null || value === undefined ? '' : String(value).replace(/[<>&"']/g, (c) => {
+          switch (c) {
+            case '<': return '&lt;';
+            case '>': return '&gt;';
+            case '&': return '&amp;';
+            case '"': return '&quot;';
+            case "'": return '&apos;';
+            default: return c;
+          }
+        });
+        xmlContent += `    <${key}>${cleanValue}</${key}>\n`;
+      });
+      xmlContent += `  </${itemName}>\n`;
+    });
+    
+    xmlContent += `</${rootName}>`;
+
+    const blob = new Blob([xmlContent], { type: 'application/xml;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    link.setAttribute('href', url);
+    link.setAttribute('download', `${filename}_${new Date().toISOString().slice(0, 10)}.xml`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   const exportPaymentsToCSV = (filteredData?: Payment[]) => {
     const dataToExport = filteredData || payments;
     const headers = ['ID', 'Miembro', 'Monto', 'Tipo', 'Fecha', 'Recibido Por'];
@@ -1032,7 +1075,22 @@ export default function App() {
   const filteredPayments = payments.filter(p => {
     const matchesSearch = (p.member_name?.toLowerCase() || '').includes(paymentSearchTerm.toLowerCase());
     const matchesMonth = paymentMonthFilter ? p.payment_date?.startsWith(paymentMonthFilter) : true;
-    return matchesSearch && matchesMonth;
+    const matchesYear = paymentYearFilter ? p.payment_date?.startsWith(paymentYearFilter) : true;
+    const matchesUser = paymentUserFilter ? p.received_by === paymentUserFilter : true;
+    return matchesSearch && matchesMonth && matchesYear && matchesUser;
+  });
+
+  const filteredExpenses = expenses.filter(e => {
+    const matchesMonth = expenseMonthFilter ? e.expense_date?.startsWith(expenseMonthFilter) : true;
+    const matchesYear = expenseYearFilter ? e.expense_date?.startsWith(expenseYearFilter) : true;
+    const matchesUser = expenseUserFilter ? e.created_by === expenseUserFilter : true;
+    return matchesMonth && matchesYear && matchesUser;
+  });
+
+  const filteredSales = sales.filter(s => {
+    const matchesMonth = saleMonthFilter ? s.sale_date?.startsWith(saleMonthFilter) : true;
+    const matchesYear = saleYearFilter ? s.sale_date?.startsWith(saleYearFilter) : true;
+    return matchesMonth && matchesYear;
   });
 
   const Skeleton = ({ className, key }: { className?: string; key?: any }) => (
@@ -1716,21 +1774,58 @@ export default function App() {
                   onChange={(e) => setPaymentSearchTerm(e.target.value)}
                 />
               </div>
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-2">
                 <input 
                   type="month" 
                   className="px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition-all text-sm"
                   value={paymentMonthFilter}
-                  onChange={(e) => setPaymentMonthFilter(e.target.value)}
+                  onChange={(e) => {
+                    setPaymentMonthFilter(e.target.value);
+                    if (e.target.value) setPaymentYearFilter('');
+                  }}
                 />
+                <select
+                  className="px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition-all text-sm"
+                  value={paymentYearFilter}
+                  onChange={(e) => {
+                    setPaymentYearFilter(e.target.value);
+                    if (e.target.value) setPaymentMonthFilter('');
+                  }}
+                >
+                  <option value="">Año (Todos)</option>
+                  {Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - i).map(y => (
+                    <option key={y} value={y.toString()}>{y}</option>
+                  ))}
+                </select>
+                <select
+                  className="px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition-all text-sm"
+                  value={paymentUserFilter}
+                  onChange={(e) => setPaymentUserFilter(e.target.value)}
+                >
+                  <option value="">Todos los usuarios</option>
+                  {users.map(u => (
+                    <option key={u.username} value={u.username}>{u.username}</option>
+                  ))}
+                </select>
                 {currentRole === 'Leslie' && (
-                  <button 
-                    onClick={() => exportPaymentsToCSV(filteredPayments)}
-                    className="flex items-center gap-2 text-xs bg-blue-600 text-white px-4 py-2 rounded-xl hover:bg-blue-700 transition-all font-bold shadow-sm"
-                  >
-                    <DollarSign size={14} />
-                    Exportar Filtrados
-                  </button>
+                  <div className="flex gap-2">
+                    <button 
+                      onClick={() => exportPaymentsToCSV(filteredPayments)}
+                      className="flex items-center gap-2 text-xs bg-emerald-600 text-white px-4 py-2 rounded-xl hover:bg-emerald-700 transition-all font-bold shadow-sm"
+                      title="Exportar a CSV"
+                    >
+                      <DollarSign size={14} />
+                      CSV
+                    </button>
+                    <button 
+                      onClick={() => exportToXML(filteredPayments, 'pagos_kinetix', 'Pagos', 'Pago')}
+                      className="flex items-center gap-2 text-xs bg-indigo-600 text-white px-4 py-2 rounded-xl hover:bg-indigo-700 transition-all font-bold shadow-sm"
+                      title="Exportar a XML"
+                    >
+                      <FileText size={14} />
+                      XML
+                    </button>
+                  </div>
                 )}
               </div>
             </div>
@@ -1862,14 +1957,63 @@ export default function App() {
 
         {activeTab === 'expenses' && (currentRole === 'Leslie' || currentRole === 'Jorge') && (
           <div className="space-y-4">
+            <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-4 flex flex-col md:flex-row gap-4">
+              <div className="flex flex-wrap gap-2">
+                <input 
+                  type="month" 
+                  className="px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition-all text-sm"
+                  value={expenseMonthFilter}
+                  onChange={(e) => {
+                    setExpenseMonthFilter(e.target.value);
+                    if (e.target.value) setExpenseYearFilter('');
+                  }}
+                />
+                <select
+                  className="px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition-all text-sm"
+                  value={expenseYearFilter}
+                  onChange={(e) => {
+                    setExpenseYearFilter(e.target.value);
+                    if (e.target.value) setExpenseMonthFilter('');
+                  }}
+                >
+                  <option value="">Año (Todos)</option>
+                  {Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - i).map(y => (
+                    <option key={y} value={y.toString()}>{y}</option>
+                  ))}
+                </select>
+                <select
+                  className="px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition-all text-sm"
+                  value={expenseUserFilter}
+                  onChange={(e) => setExpenseUserFilter(e.target.value)}
+                >
+                  <option value="">Todos los usuarios</option>
+                  {users.map(u => (
+                    <option key={u.username} value={u.username}>{u.username}</option>
+                  ))}
+                </select>
+                {currentRole === 'Leslie' && (
+                  <div className="flex gap-2">
+                    <button 
+                      onClick={() => exportToXML(filteredExpenses, 'gastos_kinetix', 'Gastos', 'Gasto')}
+                      className="flex items-center gap-2 text-xs bg-indigo-600 text-white px-4 py-2 rounded-xl hover:bg-indigo-700 transition-all font-bold shadow-sm"
+                      title="Exportar a XML"
+                    >
+                      <FileText size={14} />
+                      XML
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+
             {/* Mobile Cards View */}
             <div className="grid grid-cols-1 gap-4 lg:hidden">
-              {expenses.length === 0 ? (
+              {filteredExpenses.length === 0 ? (
                 <div className="bg-white p-8 rounded-2xl border border-slate-100 text-center text-slate-400">
                   No hay gastos registrados
                 </div>
               ) : (
-                expenses.map(e => (
+                filteredExpenses.map(e => (
                   <div key={e.id} className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm space-y-4">
                     <div className="flex justify-between items-start">
                       <div>
@@ -1922,7 +2066,7 @@ export default function App() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50">
-                  {expenses.map(e => (
+                  {filteredExpenses.map(e => (
                     <tr key={e.id} className="hover:bg-slate-50 transition-all">
                       <td className="px-6 py-4 font-medium">{e.description}</td>
                       <td className="px-6 py-4">
@@ -2064,13 +2208,22 @@ export default function App() {
                   <p className="text-sm text-slate-500">Lista de miembros que han asistido hoy</p>
                 </div>
                 {attendance.length > 0 && (
-                  <button 
-                    onClick={exportAttendanceToCSV}
-                    className="flex items-center gap-2 text-xs bg-slate-50 border border-slate-200 px-3 py-2 rounded-lg hover:bg-slate-100 transition-all font-bold"
-                  >
-                    <DollarSign size={14} />
-                    Exportar CSV
-                  </button>
+                  <div className="flex gap-2">
+                    <button 
+                      onClick={exportAttendanceToCSV}
+                      className="flex items-center gap-2 text-xs bg-slate-50 border border-slate-200 px-3 py-2 rounded-lg hover:bg-slate-100 transition-all font-bold"
+                    >
+                      <DollarSign size={14} />
+                      CSV
+                    </button>
+                    <button 
+                      onClick={() => exportToXML(attendance, 'asistencia_kinetix', 'Asistencias', 'Asistencia')}
+                      className="flex items-center gap-2 text-xs bg-indigo-600 text-white px-3 py-2 rounded-lg hover:bg-indigo-700 transition-all font-bold shadow-sm"
+                    >
+                      <FileText size={14} />
+                      XML
+                    </button>
+                  </div>
                 )}
               </div>
               {/* Mobile Cards View */}
@@ -2128,14 +2281,53 @@ export default function App() {
         )}
         {activeTab === 'sales' && (
           <div className="space-y-6">
+            <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-4 flex flex-col md:flex-row gap-4">
+              <div className="flex flex-wrap gap-2">
+                <input 
+                  type="month" 
+                  className="px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition-all text-sm"
+                  value={saleMonthFilter}
+                  onChange={(e) => {
+                    setSaleMonthFilter(e.target.value);
+                    if (e.target.value) setSaleYearFilter('');
+                  }}
+                />
+                <select
+                  className="px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition-all text-sm"
+                  value={saleYearFilter}
+                  onChange={(e) => {
+                    setSaleYearFilter(e.target.value);
+                    if (e.target.value) setSaleMonthFilter('');
+                  }}
+                >
+                  <option value="">Año (Todos)</option>
+                  {Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - i).map(y => (
+                    <option key={y} value={y.toString()}>{y}</option>
+                  ))}
+                </select>
+                {currentRole === 'Leslie' && (
+                  <div className="flex gap-2">
+                    <button 
+                      onClick={() => exportToXML(filteredSales, 'ventas_kinetix', 'Ventas', 'Venta')}
+                      className="flex items-center gap-2 text-xs bg-indigo-600 text-white px-4 py-2 rounded-xl hover:bg-indigo-700 transition-all font-bold shadow-sm"
+                      title="Exportar a XML"
+                    >
+                      <FileText size={14} />
+                      XML
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+
             {/* Mobile Cards View */}
             <div className="grid grid-cols-1 gap-4 lg:hidden">
-              {sales.length === 0 ? (
+              {filteredSales.length === 0 ? (
                 <div className="bg-white p-8 rounded-2xl border border-slate-100 text-center text-slate-400">
                   No hay ventas registradas
                 </div>
               ) : (
-                sales.map(s => (
+                filteredSales.map(s => (
                   <div key={s.id} className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm space-y-4">
                     <div className="flex justify-between items-start">
                       <div>
@@ -2192,7 +2384,7 @@ export default function App() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-50">
-                    {sales.length === 0 ? (
+                    {filteredSales.length === 0 ? (
                       <tr>
                         <td colSpan={5} className="px-6 py-12 text-center">
                           <div className="flex flex-col items-center gap-2 text-slate-400">
@@ -2202,7 +2394,7 @@ export default function App() {
                         </td>
                       </tr>
                     ) : (
-                      sales.map(s => (
+                      filteredSales.map(s => (
                         <tr key={s.id} className="hover:bg-slate-50 transition-all">
                           <td className="px-6 py-4 font-medium">{s.item_name}</td>
                           <td className="px-6 py-4 text-sm text-slate-600">{s.quantity}</td>
@@ -2304,9 +2496,22 @@ export default function App() {
             </div>
 
             <div className="hidden lg:block bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
-              <div className="p-6 border-b border-slate-100">
-                <h3 className="font-bold text-lg">Control de Inventario</h3>
-                <p className="text-sm text-slate-500">Gestión de productos y suplementos</p>
+              <div className="p-6 border-b border-slate-100 flex justify-between items-center">
+                <div>
+                  <h3 className="font-bold text-lg">Control de Inventario</h3>
+                  <p className="text-sm text-slate-500">Gestión de productos y suplementos</p>
+                </div>
+                {inventory.length > 0 && currentRole === 'Leslie' && (
+                  <div className="flex gap-2">
+                    <button 
+                      onClick={() => exportToXML(inventory, 'inventario_kinetix', 'Inventario', 'Producto')}
+                      className="flex items-center gap-2 text-xs bg-indigo-600 text-white px-3 py-2 rounded-lg hover:bg-indigo-700 transition-all font-bold shadow-sm"
+                    >
+                      <FileText size={14} />
+                      XML
+                    </button>
+                  </div>
+                )}
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full text-left">
