@@ -104,7 +104,8 @@ export default function App() {
     discount_amount: 0,
     received_by: '',
     months: 1,
-    notes: ''
+    notes: '',
+    start_date: new Date().toISOString().split('T')[0]
   });
   const [newExpense, setNewExpense] = useState({
     description: '',
@@ -434,7 +435,9 @@ export default function App() {
       discount_type: payment.discount_type,
       discount_amount: payment.discount_amount,
       received_by: payment.received_by,
-      notes: payment.notes || ''
+      notes: payment.notes || '',
+      start_date: payment.payment_date ? payment.payment_date.split('T')[0] : new Date().toISOString().split('T')[0],
+      months: 1
     });
     setIsEditing(true);
     setEditingId(payment.id);
@@ -734,9 +737,7 @@ export default function App() {
 
           let expiry_date = null;
           if (newPayment.payment_type === 'monthly') {
-            const startDate = selectedMember?.last_expiry && new Date(selectedMember.last_expiry) > new Date()
-              ? new Date(selectedMember.last_expiry)
-              : new Date();
+            const startDate = newPayment.start_date ? new Date(newPayment.start_date) : new Date();
             const d = new Date(startDate);
             d.setMonth(d.getMonth() + (Number(newPayment.months) || 1));
             expiry_date = d.toISOString();
@@ -753,6 +754,7 @@ export default function App() {
                 discount_amount: discount,
                 received_by: newPayment.received_by || currentRole,
                 expiry_date,
+                payment_date: newPayment.start_date ? new Date(newPayment.start_date).toISOString() : undefined,
                 notes: encryptData(newPayment.notes || '')
               })
               .eq('id', editingId);
@@ -769,7 +771,7 @@ export default function App() {
                 discount_amount: discount,
                 received_by: newPayment.received_by || currentRole,
                 expiry_date,
-                payment_date: new Date().toISOString(),
+                payment_date: newPayment.start_date ? new Date(newPayment.start_date).toISOString() : new Date().toISOString(),
                 notes: encryptData(newPayment.notes || '')
               }]);
             if (error) throw error;
@@ -786,7 +788,8 @@ export default function App() {
             discount_amount: 0,
             received_by: '',
             months: 1,
-            notes: ''
+            notes: '',
+            start_date: new Date().toISOString().split('T')[0]
           });
           setIsEditing(false);
           setEditingId(null);
@@ -2799,8 +2802,12 @@ export default function App() {
                     value={newPayment.member_id}
                     onChange={e => {
                       const id = parseInt(e.target.value);
-                      setNewPayment({...newPayment, member_id: id});
-                      setSelectedMember(members.find(m => m.id === id) || null);
+                      const member = members.find(m => m.id === id);
+                      const suggestedStart = member?.last_expiry && new Date(member.last_expiry) > new Date()
+                        ? new Date(member.last_expiry).toISOString().split('T')[0]
+                        : new Date().toISOString().split('T')[0];
+                      setNewPayment({...newPayment, member_id: id, start_date: suggestedStart});
+                      setSelectedMember(member || null);
                     }}
                   >
                     <option value="">Seleccionar miembro...</option>
@@ -2845,6 +2852,19 @@ export default function App() {
                     </div>
                   )}
                 </div>
+
+                {newPayment.payment_type === 'monthly' && (
+                  <div>
+                    <label className="block text-sm font-semibold text-slate-700 mb-1">Fecha de Pago / Inicio de Vigencia</label>
+                    <input 
+                      type="date" 
+                      className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 outline-none"
+                      value={newPayment.start_date}
+                      onChange={e => setNewPayment({...newPayment, start_date: e.target.value})}
+                    />
+                    <p className="text-[10px] text-slate-400 mt-1">El mes comenzará a contar desde esta fecha y se registrará como la fecha de pago.</p>
+                  </div>
+                )}
 
                 <div>
                   <label className="block text-sm font-semibold text-slate-700 mb-1">Monto Base ($)</label>
