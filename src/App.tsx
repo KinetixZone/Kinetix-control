@@ -736,11 +736,20 @@ export default function App() {
           }
 
           let expiry_date = null;
-          if (newPayment.payment_type === 'monthly') {
-            const startDate = newPayment.start_date ? new Date(newPayment.start_date) : new Date();
-            const d = new Date(startDate);
-            d.setMonth(d.getMonth() + (Number(newPayment.months) || 1));
-            expiry_date = d.toISOString();
+          let finalPaymentDate = new Date().toISOString();
+
+          if (newPayment.start_date) {
+            const [y, m, d] = newPayment.start_date.split('-').map(Number);
+            const parsedDate = new Date(y, m - 1, d, 12, 0, 0); // Use noon local time
+            if (!isNaN(parsedDate.getTime())) {
+              finalPaymentDate = parsedDate.toISOString();
+              
+              if (newPayment.payment_type === 'monthly') {
+                const expDate = new Date(parsedDate);
+                expDate.setMonth(expDate.getMonth() + (Number(newPayment.months) || 1));
+                expiry_date = expDate.toISOString();
+              }
+            }
           }
 
           if (isEditing && editingId) {
@@ -754,7 +763,7 @@ export default function App() {
                 discount_amount: discount,
                 received_by: newPayment.received_by || currentRole,
                 expiry_date,
-                payment_date: newPayment.start_date ? new Date(newPayment.start_date).toISOString() : undefined,
+                payment_date: finalPaymentDate,
                 notes: encryptData(newPayment.notes || '')
               })
               .eq('id', editingId);
@@ -771,7 +780,7 @@ export default function App() {
                 discount_amount: discount,
                 received_by: newPayment.received_by || currentRole,
                 expiry_date,
-                payment_date: newPayment.start_date ? new Date(newPayment.start_date).toISOString() : new Date().toISOString(),
+                payment_date: finalPaymentDate,
                 notes: encryptData(newPayment.notes || '')
               }]);
             if (error) throw error;
@@ -2857,6 +2866,7 @@ export default function App() {
                   <div>
                     <label className="block text-sm font-semibold text-slate-700 mb-1">Fecha de Pago / Inicio de Vigencia</label>
                     <input 
+                      required
                       type="date" 
                       className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 outline-none"
                       value={newPayment.start_date}
