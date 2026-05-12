@@ -541,7 +541,12 @@ export default function App() {
       message += `Te recordamos que tu mensualidad vence en ${daysLeft} días.`;
     }
 
-    const url = `https://wa.me/${member.phone?.replace(/\D/g, '')}?text=${encodeURIComponent(message)}`;
+    if (!member.phone) {
+      addToast('Este miembro no tiene un número de teléfono registrado', 'error');
+      return;
+    }
+
+    const url = `https://wa.me/${member.phone.replace(/\D/g, '')}?text=${encodeURIComponent(message)}`;
     window.open(url, '_blank');
   };
 
@@ -634,8 +639,8 @@ export default function App() {
   const handleAddMember = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (!newMember.name.trim() || !newMember.phone.trim()) {
-      addToast('Nombre y teléfono son obligatorios', 'error');
+    if (!newMember.name.trim()) {
+      addToast('El nombre es obligatorio', 'error');
       return;
     }
 
@@ -646,16 +651,24 @@ export default function App() {
         setErrorMsg('');
         setIsSubmitting(true);
         try {
+          // Prepare data: convert empty strings to null for optional fields
+          const memberData = {
+            ...newMember,
+            phone: newMember.phone.trim() || null,
+            email: newMember.email.trim() || null,
+            birth_date: newMember.birth_date || null
+          };
+
           let result;
           if (isEditing) {
             result = await supabase
               .from('members')
-              .update(newMember)
+              .update(memberData)
               .eq('id', editingId);
           } else {
             result = await supabase
               .from('members')
-              .insert([newMember]);
+              .insert([memberData]);
           }
 
           if (result.error) {
@@ -1413,8 +1426,12 @@ export default function App() {
                           </div>
                           <button 
                             onClick={() => {
+                              if (!m.phone) {
+                                addToast('Este miembro no tiene un número registrado', 'error');
+                                return;
+                              }
                               const msg = `¡Feliz cumpleaños ${m.name}! Te deseamos lo mejor desde Kinetix Functional Zone. Recuerda que tienes un 50% de descuento en tu próxima mensualidad. ¡Te esperamos!`;
-                              window.open(`https://wa.me/${m.phone?.replace(/\D/g, '')}?text=${encodeURIComponent(msg)}`, '_blank');
+                              window.open(`https://wa.me/${m.phone.replace(/\D/g, '')}?text=${encodeURIComponent(msg)}`, '_blank');
                             }}
                             className="p-2 text-blue-600 hover:bg-blue-50 rounded-xl transition-colors"
                           >
@@ -2717,7 +2734,7 @@ export default function App() {
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-semibold text-slate-700 mb-1">Teléfono</label>
+                    <label className="block text-sm font-semibold text-slate-700 mb-1">Teléfono (Opcional)</label>
                     <input 
                       type="tel" 
                       className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 outline-none"
@@ -2726,7 +2743,7 @@ export default function App() {
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-semibold text-slate-700 mb-1">Cumpleaños</label>
+                    <label className="block text-sm font-semibold text-slate-700 mb-1">Cumpleaños (Opcional)</label>
                     <input 
                       type="date" 
                       className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 outline-none"
@@ -2736,7 +2753,7 @@ export default function App() {
                   </div>
                 </div>
                 <div>
-                  <label className="block text-sm font-semibold text-slate-700 mb-1">Email</label>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">Email (Opcional)</label>
                   <input 
                     type="email" 
                     className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 outline-none"

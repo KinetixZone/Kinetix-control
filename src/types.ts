@@ -1,9 +1,9 @@
 export interface Member {
   id: number;
   name: string;
-  phone: string;
-  email: string;
-  birth_date: string;
+  phone: string | null;
+  email: string | null;
+  birth_date: string | null;
   created_at?: string;
   last_expiry?: string | null;
 }
