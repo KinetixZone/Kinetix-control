@@ -338,9 +338,12 @@ export default function App() {
       }
 
       setIsLoading(false);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error fetching data:', error);
       setIsLoading(false);
+      if (error.message === 'Failed to fetch') {
+        addToast('Error de conexión. Revisa tu internet.', 'error');
+      }
     }
   };
 
@@ -651,13 +654,29 @@ export default function App() {
         setErrorMsg('');
         setIsSubmitting(true);
         try {
-          // Prepare data: convert empty strings to null for optional fields
-          const memberData = {
-            ...newMember,
-            phone: newMember.phone.trim() || null,
-            email: newMember.email.trim() || null,
-            birth_date: newMember.birth_date || null
+          // Prepare data: only include fields that have values to avoid schema/null issues
+          const memberData: any = {
+            name: newMember.name.trim()
           };
+
+          if (newMember.phone && newMember.phone.trim()) {
+            memberData.phone = newMember.phone.trim();
+          } else if (isEditing) {
+            // If editing and phone is cleared, explicitly send null
+            memberData.phone = null;
+          }
+
+          if (newMember.email && newMember.email.trim()) {
+            memberData.email = newMember.email.trim();
+          } else if (isEditing) {
+            memberData.email = null;
+          }
+
+          if (newMember.birth_date) {
+            memberData.birth_date = newMember.birth_date;
+          } else if (isEditing) {
+            memberData.birth_date = null;
+          }
 
           let result;
           if (isEditing) {
@@ -672,12 +691,13 @@ export default function App() {
           }
 
           if (result.error) {
+            console.error('Supabase error saving member:', result.error);
             if (result.error?.code === '23505') {
-              setErrorMsg('Este número de teléfono ya está registrado a otro miembro.');
-              addToast('El teléfono ya existe', 'error');
+              setErrorMsg('Este dato ya está registrado a otro miembro.');
+              addToast('Dato duplicado', 'error');
             } else {
-              setErrorMsg('Error al guardar miembro: ' + result.error.message);
-              addToast('Error al guardar', 'error');
+              setErrorMsg('Error de base de datos: ' + result.error.message);
+              addToast('Error en el servidor', 'error');
             }
             setIsSubmitting(false);
             return;
@@ -690,7 +710,11 @@ export default function App() {
           addToast(isEditing ? 'Miembro actualizado' : 'Miembro registrado con éxito');
           fetchData();
         } catch (error: any) {
-          setErrorMsg(error.message || 'Error de conexión');
+          console.error('Network or Runtime error saving member:', error);
+          const detail = error.message === 'Failed to fetch' 
+            ? 'Error de conexión con la base de datos. Verifica tu internet o si Supabase está activo.'
+            : error.message;
+          setErrorMsg('Error al guardar: ' + detail);
           addToast('Error de conexión', 'error');
         } finally {
           setIsSubmitting(false);
@@ -817,8 +841,11 @@ export default function App() {
           setEditingId(null);
           fetchData();
         } catch (error: any) {
-          console.error('Error adding payment:', error);
-          addToast(`Error: ${error.message || 'No se pudo registrar'}`, 'error');
+          console.error('Network error adding payment:', error);
+          const detail = error.message === 'Failed to fetch' 
+            ? 'Error de conexión. Verifica tu internet o si la base de datos está activa.'
+            : error.message;
+          addToast(`Error: ${detail}`, 'error');
         } finally {
           setIsSubmitting(false);
         }
@@ -865,8 +892,11 @@ export default function App() {
           addToast(isEditing ? 'Gasto actualizado' : 'Gasto registrado');
           fetchData();
         } catch (error: any) {
-          console.error('Error adding expense:', error);
-          addToast(error.message || 'Error al registrar gasto', 'error');
+          console.error('Network error saving expense:', error);
+          const detail = error.message === 'Failed to fetch' 
+            ? 'Error de conexión. Revisa tu internet o si la base de datos está pausada.'
+            : error.message;
+          addToast(`Error: ${detail}`, 'error');
         } finally {
           setIsSubmitting(false);
         }
@@ -937,8 +967,11 @@ export default function App() {
           addToast(isEditing ? 'Producto actualizado' : 'Producto registrado');
           fetchData();
         } catch (error: any) {
-          console.error('Error saving inventory item:', error);
-          addToast(error.message || 'Error al guardar producto', 'error');
+          console.error('Network error saving inventory item:', error);
+          const detail = error.message === 'Failed to fetch' 
+            ? 'Error de conexión con el inventario.'
+            : error.message;
+          addToast(`Error: ${detail}`, 'error');
         } finally {
           setIsSubmitting(false);
         }
@@ -1021,8 +1054,11 @@ export default function App() {
           setEditingId(null);
           fetchData();
         } catch (error: any) {
-          console.error('Error making sale:', error);
-          addToast(error.message || 'Error al procesar venta', 'error');
+          console.error('Network error making sale:', error);
+          const detail = error.message === 'Failed to fetch' 
+            ? 'Error de conexión al procesar venta.'
+            : error.message;
+          addToast(`Error: ${detail}`, 'error');
         } finally {
           setIsSubmitting(false);
         }
