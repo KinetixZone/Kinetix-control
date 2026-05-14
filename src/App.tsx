@@ -49,6 +49,36 @@ import { Member, Payment, Expense, FinancialStats, InventoryItem } from './types
 
 type Role = 'Leslie' | 'Jorge' | 'Staff';
 
+// Error Boundary for mobile safety
+class ErrorBoundary extends React.Component<{children: React.ReactNode}, {hasError: boolean}> {
+  constructor(props: {children: React.ReactNode}) {
+    super(props);
+    this.state = { hasError: false };
+  }
+  static getDerivedStateFromError() { return { hasError: true }; }
+  componentDidCatch(error: any, errorInfo: any) { console.error("Kinetix App Error:", error, errorInfo); }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-8 text-center text-slate-900">
+          <div className="w-20 h-20 bg-rose-100 text-rose-600 rounded-3xl flex items-center justify-center mb-6 shadow-lg">
+            <AlertCircle size={40} />
+          </div>
+          <h1 className="text-2xl font-bold mb-2">Algo salió mal</h1>
+          <p className="text-slate-500 mb-8 max-w-sm">La aplicación se detuvo inesperadamente. Por favor intenta recargar la página.</p>
+          <button 
+            onClick={() => window.location.reload()}
+            className="bg-indigo-600 text-white px-8 py-4 rounded-2xl font-bold hover:bg-indigo-700 transition-all shadow-lg"
+          >
+            Recargar Aplicación
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 export default function App() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [loginForm, setLoginForm] = useState({ username: 'Leslie', pin: '' });
@@ -293,7 +323,11 @@ export default function App() {
         const expiries = memberPayments
           .map((p: any) => p.expiry_date)
           .filter(Boolean)
-          .sort((a: string, b: string) => new Date(b).getTime() - new Date(a).getTime());
+          .sort((a: string, b: string) => {
+            const dateA = new Date(a).getTime();
+            const dateB = new Date(b).getTime();
+            return (isNaN(dateB) ? 0 : dateB) - (isNaN(dateA) ? 0 : dateA);
+          });
         return { ...m, last_expiry: expiries[0] || null };
       });
       setMembers(transformedMembers);
@@ -364,15 +398,25 @@ export default function App() {
 
       const birthdayAlerts = transformedMembers.filter(m => {
         if (!m.birth_date) return false;
-        const bDay = new Date(m.birth_date);
-        return bDay.getMonth() === now.getMonth() && bDay.getDate() === now.getDate();
+        try {
+          const bDay = new Date(m.birth_date);
+          if (isNaN(bDay.getTime())) return false;
+          return bDay.getMonth() === now.getMonth() && bDay.getDate() === now.getDate();
+        } catch (e) {
+          return false;
+        }
       });
       setBirthdayAlerts(birthdayAlerts);
 
       const expiringAlerts = transformedMembers.filter(m => {
         if (!m.last_expiry) return false;
-        const expiry = new Date(m.last_expiry);
-        return expiry >= now && expiry <= next3Days;
+        try {
+          const expiry = new Date(m.last_expiry);
+          if (isNaN(expiry.getTime())) return false;
+          return expiry >= now && expiry <= next3Days;
+        } catch (e) {
+          return false;
+        }
       });
       setPaymentAlerts(expiringAlerts);
       
@@ -810,16 +854,28 @@ export default function App() {
           let finalPaymentDate = new Date().toISOString();
 
           if (newPayment.start_date) {
-            const [y, m, d] = newPayment.start_date.split('-').map(Number);
-            const parsedDate = new Date(y, m - 1, d, 12, 0, 0); // Use noon local time
-            if (!isNaN(parsedDate.getTime())) {
-              finalPaymentDate = parsedDate.toISOString();
-              
-              if (newPayment.payment_type === 'monthly') {
-                const expDate = new Date(parsedDate);
-                expDate.setMonth(expDate.getMonth() + (Number(newPayment.months) || 1));
-                expiry_date = expDate.toISOString();
+            try {
+              const parts = newPayment.start_date.split('-');
+              if (parts.length === 3) {
+                const y = parseInt(parts[0]);
+                const m = parseInt(parts[1]);
+                const d = parseInt(parts[2]);
+                const parsedDate = new Date(y, m - 1, d, 12, 0, 0);
+                
+                if (!isNaN(parsedDate.getTime())) {
+                  finalPaymentDate = parsedDate.toISOString();
+                  
+                  if (newPayment.payment_type === 'monthly') {
+                    const expDate = new Date(parsedDate);
+                    expDate.setMonth(expDate.getMonth() + (Number(newPayment.months) || 1));
+                    expiry_date = expDate.toISOString();
+                  }
+                }
               }
+            } catch (dateErr) {
+              console.error('Error parsing date:', dateErr);
+              // Fallback to today's date if parsing fails spectacularly
+              finalPaymentDate = new Date().toISOString();
             }
           }
 
@@ -1158,7 +1214,20 @@ export default function App() {
 
   const isExpired = (dateStr: string | null) => {
     if (!dateStr) return true;
-    return new Date(dateStr) < new Date();
+    try {
+      const d = new Date(dateStr);
+      if (isNaN(d.getTime())) return true;
+      
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      
+      const expiry = new Date(d);
+      expiry.setHours(0, 0, 0, 0);
+      
+      return expiry.getTime() < today.getTime();
+    } catch (e) {
+      return true;
+    }
   };
 
   const getStatusColor = (expiry: string | null) => {
@@ -1194,7 +1263,8 @@ export default function App() {
 
   if (!isLoggedIn) {
     return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
+      <ErrorBoundary>
+        <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
         <motion.div 
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -1263,34 +1333,50 @@ export default function App() {
           </div>
         </motion.div>
       </div>
+    </ErrorBoundary>
     );
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 font-sans">
+    <ErrorBoundary>
+      <div className="min-h-screen bg-slate-50 text-slate-900 font-sans">
       {/* Mobile Header */}
-      <div className="lg:hidden bg-white border-b border-slate-100 p-4 sticky top-0 z-30 flex justify-between items-center">
+      <div className="lg:hidden bg-white border-b border-slate-100 p-4 sticky top-0 z-30 flex justify-between items-center h-16">
         <button 
           onClick={() => { setActiveTab('dashboard'); setIsMobileMenuOpen(false); }}
           className="flex items-center gap-2 hover:opacity-80 transition-opacity"
         >
-          <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center text-white">
+          <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center text-white shadow-sm">
             <ShieldCheck size={16} />
           </div>
-          <span className="font-bold text-sm">Kinetix</span>
+          <span className="font-bold text-sm tracking-tight">Kinetix Zone</span>
         </button>
         <button 
           onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-          className="p-2 text-slate-600 hover:bg-slate-50 rounded-lg"
+          className="p-2 text-slate-600 hover:bg-slate-50 rounded-lg transition-colors active:scale-95"
+          aria-label="Toggle Menu"
         >
           {isMobileMenuOpen ? <X size={24} /> : <Menu size={24} />}
         </button>
       </div>
 
+      {/* Mobile Sidebar Overlay */}
+      <AnimatePresence>
+        {isMobileMenuOpen && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setIsMobileMenuOpen(false)}
+            className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[35] lg:hidden"
+          />
+        )}
+      </AnimatePresence>
+
       {/* Sidebar - Desktop & Mobile Overlay */}
       <nav className={`
-        fixed left-0 top-0 h-full w-64 bg-white border-r border-slate-100 p-6 flex flex-col z-40 transition-transform duration-300
-        ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
+        fixed left-0 top-0 h-[100dvh] w-64 bg-white border-r border-slate-100 p-6 flex flex-col z-40 transition-transform duration-300 ease-in-out
+        ${isMobileMenuOpen ? 'translate-x-0 shadow-2xl' : '-translate-x-full lg:translate-x-0'}
       `}>
         <div className="flex items-center justify-between mb-10">
           <button 
@@ -1432,25 +1518,34 @@ export default function App() {
       </nav>
 
       {/* Main Content */}
-      <main className="lg:ml-64 p-4 md:p-8">
+      <main className="lg:ml-64 p-4 md:p-8 min-h-[calc(100dvh-64px)] lg:min-h-screen relative">
         <header className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
           <div>
-            <h2 className="text-3xl font-bold tracking-tight">
-              {activeTab === 'dashboard' && 'Resumen General'}
-              {activeTab === 'members' && 'Gestión de Miembros'}
-              {activeTab === 'payments' && 'Historial de Pagos'}
-              {activeTab === 'expenses' && 'Control de Gastos'}
-              {activeTab === 'analytics' && 'Análisis de Rentabilidad'}
-              {activeTab === 'attendance' && 'Asistencia de Hoy'}
-              {activeTab === 'sales' && 'Historial de Ventas'}
-              {activeTab === 'inventory' && 'Control de Inventario'}
-              {activeTab === 'users' && 'Gestión de Personal'}
+            <h2 className="text-2xl md:text-3xl font-bold tracking-tight text-slate-900 uppercase">
+              {activeTab === 'dashboard' && 'Resumen'}
+              {activeTab === 'members' && 'Miembros'}
+              {activeTab === 'payments' && 'Pagos'}
+              {activeTab === 'expenses' && 'Gastos'}
+              {activeTab === 'analytics' && 'Reportes'}
+              {activeTab === 'attendance' && 'Asistencia'}
+              {activeTab === 'sales' && 'Ventas'}
+              {activeTab === 'inventory' && 'Inventario'}
+              {activeTab === 'users' && 'Personal'}
             </h2>
-            <p className="text-slate-500 mt-1">
-              {new Date().toLocaleDateString('es-ES', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
-            </p>
+            <div className="h-6 mt-1 flex items-center gap-2">
+              <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+              <p className="text-slate-500 text-xs font-bold uppercase tracking-widest">
+                {(() => {
+                  try {
+                    return new Date().toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long' });
+                  } catch (e) {
+                    return new Date().toLocaleDateString();
+                  }
+                })()}
+              </p>
+            </div>
           </div>
-          <div className="flex gap-3">
+          <div className="flex flex-wrap gap-2 md:gap-3">
             {currentRole === 'Leslie' && activeTab === 'expenses' && (
               <button 
                 onClick={() => setShowAddExpense(true)}
@@ -1528,16 +1623,22 @@ export default function App() {
                     <div className="space-y-3">
                       {paymentAlerts.map(m => {
                         const expiryDate = m.last_expiry ? new Date(m.last_expiry) : null;
-                        const daysLeft = expiryDate && !isNaN(expiryDate.getTime())
-                          ? Math.ceil((expiryDate.getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24))
-                          : null;
+                        let daysLeft: number | null = null;
+                        
+                        if (expiryDate && !isNaN(expiryDate.getTime())) {
+                          const today = new Date();
+                          today.setHours(0, 0, 0, 0);
+                          const expCompare = new Date(expiryDate);
+                          expCompare.setHours(0, 0, 0, 0);
+                          daysLeft = Math.ceil((expCompare.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+                        }
                         
                         return (
-                          <div key={m.id} className="bg-white p-4 rounded-2xl border border-rose-100 flex justify-between items-center shadow-sm">
-                            <div>
-                              <div className="font-bold text-slate-900">{m.name}</div>
+                          <div key={m.id} className="bg-white p-4 rounded-2xl border border-rose-100 flex justify-between items-center shadow-sm hover:border-rose-200 transition-colors">
+                            <div className="overflow-hidden">
+                              <div className="font-bold text-slate-900 truncate">{m.name}</div>
                               <div className={`text-[10px] font-black uppercase tracking-wider ${daysLeft !== null && daysLeft < 0 ? 'text-rose-600' : 'text-amber-600'}`}>
-                                {daysLeft === null ? 'Fecha inválida' : daysLeft < 0 ? `Vencido hace ${Math.abs(daysLeft)}d` : daysLeft === 0 ? 'Vence hoy' : `Vence en ${daysLeft}d`}
+                                {daysLeft === null ? 'Fecha pendiente' : daysLeft < 0 ? `Vencido hace ${Math.abs(daysLeft)}d` : daysLeft === 0 ? 'Vence hoy' : `Vence en ${daysLeft}d`}
                               </div>
                             </div>
                             <div className="flex gap-2">
@@ -1675,13 +1776,18 @@ export default function App() {
                           </tr>
                         ))
                       ) : (
-                        payments.slice(0, 5).map(p => (
+                      (payments || []).slice(0, 5).map(p => {
+                        const pDate = p.payment_date ? new Date(p.payment_date) : null;
+                        return (
                           <tr key={p.id} className="hover:bg-slate-50/50 transition-all group">
                             <td className="px-8 py-5 font-bold text-slate-700">{p.member_name}</td>
                             <td className="px-8 py-5 font-mono text-sm font-black text-emerald-600">${(p.amount || 0).toFixed(2)}</td>
-                            <td className="px-8 py-5 text-slate-400 text-xs font-medium">{new Date(p.payment_date!).toLocaleDateString()}</td>
+                            <td className="px-8 py-5 text-slate-400 text-xs font-medium">
+                              {pDate && !isNaN(pDate.getTime()) ? pDate.toLocaleDateString() : 'Fecha inválida'}
+                            </td>
                           </tr>
-                        ))
+                        );
+                      })
                       )}
                     </tbody>
                   </table>
@@ -1695,9 +1801,13 @@ export default function App() {
                   {isLoading ? (
                     [1, 2, 3, 4].map(i => <Skeleton key={i} className="h-16 rounded-2xl" />)
                   ) : (
-                    members
+                    (members || [])
                       .filter(m => m.last_expiry && !isExpired(m.last_expiry))
-                      .sort((a, b) => new Date(a.last_expiry!).getTime() - new Date(b.last_expiry!).getTime())
+                      .sort((a, b) => {
+                        const dateA = new Date(a.last_expiry || 0).getTime();
+                        const dateB = new Date(b.last_expiry || 0).getTime();
+                        return (isNaN(dateA) ? 0 : dateA) - (isNaN(dateB) ? 0 : dateB);
+                      })
                       .slice(0, 4)
                       .map(m => {
                         const expiryDate = m.last_expiry ? new Date(m.last_expiry) : null;
@@ -1740,57 +1850,71 @@ export default function App() {
 
             {/* Mobile Cards View */}
             <div className="grid grid-cols-1 gap-4 lg:hidden">
-              {filteredMembers.map(m => (
-                <div key={m.id} className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm space-y-4">
-                  <div className="flex justify-between items-start">
-                    <div>
-                      <h4 className="font-bold text-slate-900">{m.name}</h4>
-                      <p className="text-xs text-slate-400">{m.phone}</p>
-                    </div>
-                    <span className={`px-2 py-1 rounded-full text-[10px] font-bold uppercase ${getStatusColor(m.last_expiry)}`}>
-                      {m.last_expiry ? (isExpired(m.last_expiry) ? 'Vencido' : 'Activo') : 'Sin Pagos'}
-                    </span>
+              {filteredMembers.length === 0 ? (
+                <div className="bg-white p-12 rounded-3xl border border-slate-100 text-center space-y-3">
+                  <div className="w-16 h-16 bg-slate-50 text-slate-300 rounded-2xl flex items-center justify-center mx-auto">
+                    <Users size={32} />
                   </div>
-                  <div className="flex justify-between items-center text-xs">
-                    <span className="text-slate-400 font-medium uppercase tracking-wider">Vencimiento</span>
-                    <span className="font-mono font-bold text-slate-700">
-                      {m.last_expiry ? new Date(m.last_expiry).toLocaleDateString() : 'N/A'}
-                    </span>
-                  </div>
-                  <div className="grid grid-cols-2 gap-2 pt-2">
-                    <button 
-                      onClick={() => { setSelectedMember(m); setNewPayment({ ...newPayment, member_id: m.id }); setShowAddPayment(true); }}
-                      className="bg-blue-50 text-blue-600 py-2 rounded-xl font-bold text-xs"
-                    >
-                      Pagar
-                    </button>
-                    <button 
-                      onClick={() => handleEditMember(m)}
-                      className="bg-slate-50 text-slate-600 py-2 rounded-xl font-bold text-xs"
-                    >
-                      Editar
-                    </button>
-                    <button 
-                      onClick={() => handleCheckIn(m.id)}
-                      disabled={isSubmitting}
-                      className={`bg-emerald-50 text-emerald-600 py-2 rounded-xl font-bold text-xs flex items-center justify-center gap-1 ${isSubmitting ? 'opacity-50 cursor-not-allowed' : ''}`}
-                    >
-                      {isSubmitting ? (
-                        <div className="w-3 h-3 border-2 border-emerald-600/30 border-t-emerald-600 rounded-full animate-spin" />
-                      ) : null}
-                      Check-in
-                    </button>
-                    {(currentRole === 'Leslie' || currentRole === 'Jorge') && (
-                      <button 
-                        onClick={() => handleDeleteMember(m.id)}
-                        className="bg-rose-50 text-rose-600 py-2 rounded-xl font-bold text-xs"
-                      >
-                        Eliminar
-                      </button>
-                    )}
-                  </div>
+                  <p className="text-slate-400 font-medium">No se encontraron miembros</p>
                 </div>
-              ))}
+              ) : (
+                filteredMembers.map(m => {
+                  const isExp = isExpired(m.last_expiry);
+                  return (
+                    <div key={m.id} className="bg-white p-5 rounded-3xl border border-slate-100 shadow-sm space-y-4 active:scale-[0.98] transition-transform">
+                      <div className="flex justify-between items-start">
+                        <div>
+                          <h4 className="font-bold text-slate-900 text-lg">{m.name}</h4>
+                          <p className="text-xs text-slate-400 font-medium">{m.phone || 'Sin teléfono'}</p>
+                        </div>
+                        <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${isExp ? 'bg-rose-50 text-rose-600' : 'bg-emerald-50 text-emerald-600'}`}>
+                          {m.last_expiry ? (isExp ? 'Vencido' : 'Activo') : 'Nuevo'}
+                        </span>
+                      </div>
+                      <div className="flex justify-between items-center text-xs bg-slate-50 p-3 rounded-2xl">
+                        <span className="text-slate-400 font-bold uppercase tracking-wider">Vencimiento</span>
+                        <span className={`font-mono font-bold ${isExp ? 'text-rose-600' : 'text-slate-700'}`}>
+                          {(() => {
+                            if (!m.last_expiry) return 'PENDIENTE';
+                            const d = new Date(m.last_expiry);
+                            return isNaN(d.getTime()) ? 'ERROR' : d.toLocaleDateString();
+                          })()}
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2 pt-1">
+                        <button 
+                          onClick={() => { setSelectedMember(m); setNewPayment({ ...newPayment, member_id: m.id }); setShowAddPayment(true); }}
+                          className="bg-indigo-600 text-white py-3 rounded-2xl font-bold text-xs shadow-lg shadow-indigo-100"
+                        >
+                          Registrar Pago
+                        </button>
+                        <button 
+                          onClick={() => handleEditMember(m)}
+                          className="bg-slate-900 text-white py-3 rounded-2xl font-bold text-xs"
+                        >
+                          Editar
+                        </button>
+                        <button 
+                          onClick={() => handleCheckIn(m.id)}
+                          disabled={isSubmitting}
+                          className={`bg-emerald-50 text-emerald-600 py-3 rounded-2xl font-bold text-xs flex items-center justify-center gap-2 ${isSubmitting ? 'opacity-50 cursor-not-allowed' : ''}`}
+                        >
+                          {isSubmitting ? <div className="w-3 h-3 border-2 border-emerald-600/30 border-t-emerald-600 rounded-full animate-spin" /> : <div className="w-2 h-2 rounded-full bg-emerald-500" />}
+                          Check-in
+                        </button>
+                        {(currentRole === 'Leslie' || currentRole === 'Jorge') && (
+                          <button 
+                            onClick={() => handleDeleteMember(m.id)}
+                            className="bg-rose-50 text-rose-600 py-3 rounded-2xl font-bold text-xs"
+                          >
+                            Eliminar
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })
+              )}
             </div>
 
             {/* Desktop Table View */}
@@ -1816,7 +1940,11 @@ export default function App() {
                         </td>
                         <td className="px-6 py-4 text-sm text-slate-600">{m.phone}</td>
                         <td className="px-6 py-4 text-sm text-slate-600">
-                          {m.birth_date ? new Date(m.birth_date).toLocaleDateString('es-ES', { day: 'numeric', month: 'short' }) : '-'}
+                          {(() => {
+                            if (!m.birth_date) return '-';
+                            const d = new Date(m.birth_date);
+                            return isNaN(d.getTime()) ? '-' : d.toLocaleDateString('es-ES', { day: 'numeric', month: 'short' });
+                          })()}
                         </td>
                         <td className="px-6 py-4">
                           <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(m.last_expiry)}`}>
@@ -1954,7 +2082,13 @@ export default function App() {
                     <div className="flex justify-between items-start">
                       <div>
                         <h4 className="font-bold text-slate-900">{p.member_name}</h4>
-                        <p className="text-xs text-slate-400">{new Date(p.payment_date!).toLocaleDateString()}</p>
+                        <p className="text-xs text-slate-400">
+                          {(() => {
+                            if (!p.payment_date) return 'Fecha desconocida';
+                            const d = new Date(p.payment_date);
+                            return isNaN(d.getTime()) ? 'Fecha inválida' : d.toLocaleDateString();
+                          })()}
+                        </p>
                       </div>
                       <span className={`px-2 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${p.payment_type === 'monthly' ? 'bg-blue-50 text-blue-600' : 'bg-amber-50 text-amber-600'}`}>
                         {p.payment_type === 'monthly' ? 'Mensualidad' : 'Visita'}
@@ -2032,7 +2166,13 @@ export default function App() {
                               {p.payment_type === 'monthly' ? 'Mensualidad' : 'Visita'}
                             </span>
                           </td>
-                          <td className="px-6 py-4 text-slate-500 text-sm">{new Date(p.payment_date!).toLocaleDateString()}</td>
+                          <td className="px-6 py-4 text-slate-500 text-sm">
+                            {(() => {
+                              if (!p.payment_date) return 'N/A';
+                              const d = new Date(p.payment_date);
+                              return isNaN(d.getTime()) ? 'N/A' : d.toLocaleDateString();
+                            })()}
+                          </td>
                           <td className="px-6 py-4 text-xs text-slate-400 italic max-w-[150px] truncate" title={p.notes}>
                             {p.notes || '-'}
                           </td>
@@ -2130,7 +2270,13 @@ export default function App() {
                     <div className="flex justify-between items-start">
                       <div>
                         <h4 className="font-bold text-slate-900">{e.description}</h4>
-                        <p className="text-xs text-slate-400">{new Date(e.expense_date).toLocaleDateString()}</p>
+                        <p className="text-xs text-slate-400">
+                          {(() => {
+                            if (!e.expense_date) return 'Fecha desconocida';
+                            const d = new Date(e.expense_date);
+                            return isNaN(d.getTime()) ? 'Fecha inválida' : d.toLocaleDateString();
+                          })()}
+                        </p>
                       </div>
                       <span className="px-2 py-1 bg-slate-100 text-slate-600 rounded-full text-[10px] font-bold uppercase tracking-wider">
                         {e.category}
@@ -2188,7 +2334,13 @@ export default function App() {
                       </td>
                       <td className="px-6 py-4 font-mono text-sm font-bold text-rose-600">-${(e.amount || 0).toFixed(2)}</td>
                       <td className="px-6 py-4 text-sm text-slate-600">{e.created_by}</td>
-                      <td className="px-6 py-4 text-slate-500 text-sm">{new Date(e.expense_date).toLocaleDateString()}</td>
+                      <td className="px-6 py-4 text-slate-500 text-sm">
+                        {(() => {
+                          if (!e.expense_date) return 'N/A';
+                          const d = new Date(e.expense_date);
+                          return isNaN(d.getTime()) ? 'N/A' : d.toLocaleDateString();
+                        })()}
+                      </td>
                       <td className="px-6 py-4 text-right">
                         <div className="flex gap-2 justify-end">
                           <button 
@@ -2419,7 +2571,11 @@ export default function App() {
                     <div key={a.id} className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm flex justify-between items-center">
                       <div className="font-bold text-slate-900">{a.name}</div>
                       <div className="text-sm text-slate-500 font-mono">
-                        {new Date(a.check_in_time).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}
+                        {(() => {
+                          if (!a.check_in_time) return '-';
+                          const d = new Date(a.check_in_time);
+                          return isNaN(d.getTime()) ? '-' : d.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
+                        })()}
                       </div>
                     </div>
                   ))
@@ -2450,7 +2606,11 @@ export default function App() {
                         <tr key={a.id} className="hover:bg-slate-50 transition-all">
                           <td className="px-6 py-4 font-medium">{a.name}</td>
                           <td className="px-6 py-4 text-sm text-slate-600">
-                            {new Date(a.check_in_time).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}
+                            {(() => {
+                              if (!a.check_in_time) return '-';
+                              const d = new Date(a.check_in_time);
+                              return isNaN(d.getTime()) ? '-' : d.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
+                            })()}
                           </td>
                         </tr>
                       ))
@@ -2515,7 +2675,12 @@ export default function App() {
                       <div>
                         <h4 className="font-bold text-slate-900">{s.item_name}</h4>
                         <p className="text-xs text-slate-400">
-                          {new Date(s.sale_date).toLocaleDateString()} {new Date(s.sale_date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          {(() => {
+                            if (!s.sale_date) return 'N/A';
+                            const d = new Date(s.sale_date);
+                            if (isNaN(d.getTime())) return 'N/A';
+                            return `${d.toLocaleDateString()} ${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+                          })()}
                         </p>
                       </div>
                       <span className="text-xl font-black text-emerald-600">${(s.total_price || 0).toFixed(2)}</span>
@@ -2582,7 +2747,12 @@ export default function App() {
                           <td className="px-6 py-4 text-sm text-slate-600">{s.quantity}</td>
                           <td className="px-6 py-4 font-mono text-sm font-bold text-emerald-600">${(s.total_price || 0).toFixed(2)}</td>
                           <td className="px-6 py-4 text-sm text-slate-600">
-                            {new Date(s.sale_date).toLocaleDateString()} {new Date(s.sale_date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                            {(() => {
+                              if (!s.sale_date) return 'N/A';
+                              const d = new Date(s.sale_date);
+                              if (isNaN(d.getTime())) return 'N/A';
+                              return `${d.toLocaleDateString()} ${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+                            })()}
                           </td>
                           <td className="px-6 py-4 text-right">
                             <div className="flex gap-2 justify-end">
@@ -3135,13 +3305,13 @@ export default function App() {
                 <div className="bg-indigo-50 p-4 rounded-2xl">
                   <div className="flex justify-between text-sm text-indigo-600 font-medium">
                     <span>Subtotal:</span>
-                    <span>${newPayment.amount.toFixed(2)}</span>
+                    <span>${(Number(newPayment.amount) || 0).toFixed(2)}</span>
                   </div>
                   <div className="flex justify-between text-lg font-bold text-indigo-900 mt-1">
                     <span>Total a pagar:</span>
                     <span>
-                      ${(newPayment.amount - 
-                        (newPayment.discount_type === 'birthday' ? newPayment.amount * 0.5 : (newPayment.discount_type === 'other' ? newPayment.discount_amount : 0))).toFixed(2)}
+                      ${( (Number(newPayment.amount) || 0) - 
+                        (newPayment.discount_type === 'birthday' ? (Number(newPayment.amount) || 0) * 0.5 : (newPayment.discount_type === 'other' ? (Number(newPayment.discount_amount) || 0) : 0))).toFixed(2)}
                     </span>
                   </div>
                 </div>
@@ -3381,7 +3551,7 @@ export default function App() {
                     <option value="">Seleccionar...</option>
                     {inventory.map(item => (
                       <option key={item.id} value={item.id} disabled={item.stock <= 0}>
-                        {item.name} (${item.price.toFixed(2)}) - Stock: {item.stock}
+                        {item.name} (${(Number(item.price) || 0).toFixed(2)}) - Stock: {item.stock}
                       </option>
                     ))}
                   </select>
@@ -3408,7 +3578,7 @@ export default function App() {
                 <div className="bg-blue-50 p-4 rounded-2xl">
                   <div className="flex justify-between text-lg font-bold text-blue-900">
                     <span>Total a cobrar:</span>
-                    <span>${newSale.total_price.toFixed(2)}</span>
+                    <span>${(Number(newSale.total_price) || 0).toFixed(2)}</span>
                   </div>
                 </div>
                 <div className="flex gap-3 mt-6">
@@ -3686,5 +3856,6 @@ export default function App() {
         )}
       </AnimatePresence>
     </div>
+    </ErrorBoundary>
   );
 }
