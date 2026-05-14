@@ -1675,25 +1675,34 @@ export default function App() {
                   <div>
                     <div className="flex items-center justify-between mb-8">
                       <div className="p-3 bg-indigo-50 text-indigo-600 rounded-2xl">
-                        <DollarSign size={24} />
+                        <BarChart3 size={24} />
                       </div>
-                      <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">Resumen Financiero</span>
+                      <div className="text-right">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block">Resumen del Mes</span>
+                        <span className="text-xs font-bold text-indigo-600 uppercase">
+                          {new Date(analyticsMonthFilter + '-02').toLocaleString('es-ES', { month: 'long', year: 'numeric' })}
+                        </span>
+                      </div>
                     </div>
                     <div className="space-y-1">
-                      <div className="text-sm text-slate-500 font-medium">Balance Total</div>
-                      <div className="text-5xl font-black text-slate-900 tracking-tighter">
+                      <div className="text-sm text-slate-500 font-medium">Ganancia Neta</div>
+                      <div className={`text-5xl font-black tracking-tighter ${financialStats.profit >= 0 ? 'text-slate-900' : 'text-rose-600'}`}>
                         ${(financialStats.profit || 0).toFixed(2)}
                       </div>
                     </div>
                   </div>
                   <div className="grid grid-cols-2 gap-4 mt-8 pt-8 border-t border-slate-50">
                     <div>
-                      <div className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider mb-1">Ingresos</div>
-                      <div className="text-xl font-bold text-slate-900">${(financialStats.total_income || 0).toFixed(2)}</div>
+                      <div className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider mb-1 flex items-center gap-1">
+                        <TrendingUp size={10} /> Ingresos
+                      </div>
+                      <div className="text-xl font-bold text-slate-900 font-mono">${(financialStats.total_income || 0).toFixed(2)}</div>
                     </div>
                     <div>
-                      <div className="text-[10px] font-bold text-rose-600 uppercase tracking-wider mb-1">Gastos</div>
-                      <div className="text-xl font-bold text-slate-900">${(financialStats.total_expenses || 0).toFixed(2)}</div>
+                      <div className="text-[10px] font-bold text-rose-600 uppercase tracking-wider mb-1 flex items-center gap-1">
+                        <TrendingDown size={10} /> Gastos
+                      </div>
+                      <div className="text-xl font-bold text-slate-900 font-mono">${(financialStats.total_expenses || 0).toFixed(2)}</div>
                     </div>
                   </div>
                 </div>
@@ -2130,11 +2139,19 @@ export default function App() {
             </div>
 
             <div className="hidden lg:block bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
-              <div className="p-6 border-b border-slate-100">
-                <h3 className="font-bold text-lg">Historial de Pagos</h3>
-                <p className="text-sm text-slate-500">
-                  {filteredPayments.length} transacciones encontradas
-                </p>
+              <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/30">
+                <div>
+                  <h3 className="font-bold text-lg">Historial de Pagos</h3>
+                  <p className="text-sm text-slate-500">
+                    {filteredPayments.length} transacciones encontradas
+                  </p>
+                </div>
+                <div className="bg-white px-6 py-3 rounded-2xl border border-slate-100 shadow-sm text-right">
+                  <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-0.5">Recaudación Total</div>
+                  <div className="text-2xl font-black text-emerald-600 font-mono">
+                    ${filteredPayments.reduce((acc, p) => acc + (Number(p.amount) || 0), 0).toFixed(2)}
+                  </div>
+                </div>
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full text-left">
@@ -2501,8 +2518,18 @@ export default function App() {
             </div>
             
             <div className="bg-white p-8 rounded-3xl shadow-sm border border-slate-100">
-              <h3 className="text-xl font-bold mb-4">Resumen de Rentabilidad</h3>
-              <p className="text-slate-500 mb-6">Análisis detallado de la salud financiera de Kinetix</p>
+              <div className="flex flex-col md:flex-row md:items-center justify-between mb-8 gap-4">
+                <div>
+                  <h3 className="text-xl font-bold">Resumen de Rentabilidad</h3>
+                  <p className="text-slate-500">Análisis detallado de la salud financiera de Kinetix</p>
+                </div>
+                <div className="bg-indigo-50 px-6 py-3 rounded-2xl border border-indigo-100">
+                  <div className="text-[10px] font-black text-indigo-400 uppercase tracking-widest mb-0.5 text-center">Ganancia Total Periodo</div>
+                  <div className="text-3xl font-black text-indigo-700 font-mono text-center">
+                    ${financialStats.profit.toFixed(2)}
+                  </div>
+                </div>
+              </div>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                 <div className="p-6 bg-blue-50 rounded-2xl">
                   <div className="text-blue-600 text-sm font-bold uppercase mb-1">Margen de Utilidad</div>
