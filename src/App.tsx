@@ -2142,18 +2142,23 @@ export default function App() {
                   No se encontraron pagos con los filtros aplicados
                 </div>
               ) : (
-                filteredPayments.map(p => (
+                filteredPayments.map((p, idx) => (
                   <div key={p.id} className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm space-y-4">
                     <div className="flex justify-between items-start">
-                      <div>
-                        <h4 className="font-bold text-slate-900">{p.member_name}</h4>
-                        <p className="text-xs text-slate-400">
-                          {(() => {
-                            if (!p.payment_date) return 'Fecha desconocida';
-                            const d = new Date(p.payment_date);
-                            return isNaN(d.getTime()) ? 'Fecha inválida' : d.toLocaleDateString();
-                          })()}
-                        </p>
+                      <div className="flex items-start gap-3">
+                        <div className="text-[10px] font-black text-slate-200 mt-1 font-mono">
+                          {(filteredPayments.length - idx).toString().padStart(3, '0')}
+                        </div>
+                        <div>
+                          <h4 className="font-bold text-slate-900">{p.member_name}</h4>
+                          <p className="text-xs text-slate-400">
+                            {(() => {
+                              if (!p.payment_date) return 'Fecha desconocida';
+                              const d = new Date(p.payment_date);
+                              return isNaN(d.getTime()) ? 'Fecha inválida' : d.toLocaleDateString();
+                            })()}
+                          </p>
+                        </div>
                       </div>
                       <span className={`px-2 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${p.payment_type === 'monthly' ? 'bg-blue-50 text-blue-600' : 'bg-amber-50 text-amber-600'}`}>
                         {p.payment_type === 'monthly' ? 'Mensualidad' : 'Visita'}
@@ -2211,8 +2216,9 @@ export default function App() {
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full text-left">
-                  <thead className="bg-slate-50 text-slate-400 text-xs uppercase tracking-wider">
+                  <thead className="bg-slate-50 text-slate-400 text-[10px] uppercase tracking-wider">
                     <tr>
+                      <th className="px-6 py-3 font-bold w-12 text-center">#</th>
                       <th className="px-6 py-3 font-semibold">Miembro</th>
                       <th className="px-6 py-3 font-semibold">Monto</th>
                       <th className="px-6 py-3 font-semibold">Tipo</th>
@@ -2225,13 +2231,16 @@ export default function App() {
                   <tbody className="divide-y divide-slate-50">
                     {filteredPayments.length === 0 ? (
                       <tr>
-                        <td colSpan={6} className="px-6 py-12 text-center text-slate-400">
+                        <td colSpan={8} className="px-6 py-12 text-center text-slate-400">
                           No se encontraron pagos con los filtros aplicados
                         </td>
                       </tr>
                     ) : (
-                      filteredPayments.map(p => (
+                      filteredPayments.map((p, idx) => (
                         <tr key={p.id} className="hover:bg-slate-50 transition-all">
+                          <td className="px-6 py-4 text-[10px] font-mono font-bold text-slate-300 text-center">
+                            {(filteredPayments.length - idx).toString().padStart(3, '0')}
+                          </td>
                           <td className="px-6 py-4 font-medium">{p.member_name}</td>
                           <td className="px-6 py-4 font-mono text-sm font-bold text-emerald-600">${(p.amount || 0).toFixed(2)}</td>
                           <td className="px-6 py-4">
