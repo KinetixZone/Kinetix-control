@@ -244,7 +244,8 @@ export default function App() {
       if (mError) throw mError;
 
       const transformedMembers = (membersData || []).map(m => {
-        const expiries = (m.payments || [])
+        const paymentsArray = Array.isArray(m.payments) ? m.payments : (m.payments ? [m.payments] : []);
+        const expiries = paymentsArray
           .map((p: any) => p.expiry_date)
           .filter(Boolean)
           .sort((a: string, b: string) => new Date(b).getTime() - new Date(a).getTime());
@@ -2864,27 +2865,30 @@ export default function App() {
                       onChange={(e) => setSearchTerm(e.target.value)}
                     />
                   </div>
-                  <select 
-                    required
-                    className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 outline-none"
-                    value={newPayment.member_id}
-                    onChange={e => {
-                      const id = parseInt(e.target.value);
-                      const member = members.find(m => m.id === id);
-                      const suggestedStart = member?.last_expiry && new Date(member.last_expiry) > new Date()
-                        ? new Date(member.last_expiry).toISOString().split('T')[0]
-                        : new Date().toISOString().split('T')[0];
-                      setNewPayment({...newPayment, member_id: id, start_date: suggestedStart});
-                      setSelectedMember(member || null);
-                    }}
-                  >
-                    <option value="">Seleccionar miembro...</option>
-                    {members
-                      .filter(m => m.name.toLowerCase().includes(searchTerm.toLowerCase()) || m.phone?.includes(searchTerm))
-                      .map(m => (
-                        <option key={m.id} value={m.id}>{m.name} ({m.phone})</option>
-                      ))}
-                  </select>
+                    <select 
+                      required
+                      className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 outline-none"
+                      value={newPayment.member_id}
+                      onChange={e => {
+                        const id = parseInt(e.target.value);
+                        const member = members.find(m => m.id === id);
+                        const suggestedStart = member?.last_expiry && new Date(member.last_expiry) > new Date()
+                          ? new Date(member.last_expiry).toISOString().split('T')[0]
+                          : new Date().toISOString().split('T')[0];
+                        setNewPayment({...newPayment, member_id: id, start_date: suggestedStart});
+                        setSelectedMember(member || null);
+                      }}
+                    >
+                      <option value="">Seleccionar miembro...</option>
+                      {members
+                        .filter(m => 
+                          (m.name || '').toLowerCase().includes((searchTerm || '').toLowerCase()) || 
+                          (m.phone || '').includes(searchTerm || '')
+                        )
+                        .map(m => (
+                          <option key={m.id} value={m.id}>{m.name} {m.phone ? `(${m.phone})` : ''}</option>
+                        ))}
+                    </select>
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">
