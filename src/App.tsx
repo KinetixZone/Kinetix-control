@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Users, 
   CreditCard, 
@@ -64,7 +64,6 @@ export default function App() {
   const [selectedUserForPin, setSelectedUserForPin] = useState<string | null>(null);
   const [paymentAlerts, setPaymentAlerts] = useState<any[]>([]);
   const [birthdayAlerts, setBirthdayAlerts] = useState<any[]>([]);
-  const [financialStats, setFinancialStats] = useState<FinancialStats>({ total_income: 0, total_expenses: 0, profit: 0 });
   const [activeTab, setActiveTab] = useState<'dashboard' | 'members' | 'payments' | 'expenses' | 'analytics' | 'attendance' | 'inventory' | 'users' | 'sales'>('dashboard');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [showAddMember, setShowAddMember] = useState(false);
@@ -91,6 +90,8 @@ export default function App() {
   const [expenseYearFilter, setExpenseYearFilter] = useState('');
   const [saleMonthFilter, setSaleMonthFilter] = useState('');
   const [saleYearFilter, setSaleYearFilter] = useState('');
+  const [analyticsMonthFilter, setAnalyticsMonthFilter] = useState(new Date().toISOString().slice(0, 7)); // Default to current month
+  const [analyticsYearFilter, setAnalyticsYearFilter] = useState(new Date().getFullYear().toString());
   const [selectedMember, setSelectedMember] = useState<Member | null>(null);
   const [currentRole, setCurrentRole] = useState<Role>('Leslie');
   const [errorMsg, setErrorMsg] = useState('');
@@ -237,6 +238,41 @@ export default function App() {
     }
   }, [showAddPayment]);
 
+  // Financial Stats Calculation using current filters
+  const financialStats = useMemo(() => {
+    const validPayments = (payments || []).filter(p => {
+      const dateStr = String(p.payment_date || '');
+      const matchMonth = analyticsMonthFilter ? dateStr.startsWith(analyticsMonthFilter) : true;
+      const matchYear = analyticsYearFilter ? dateStr.startsWith(analyticsYearFilter) : true;
+      return matchMonth && matchYear;
+    });
+
+    const validSales = (sales || []).filter(s => {
+      const dateStr = String(s.sale_date || '');
+      const matchMonth = analyticsMonthFilter ? dateStr.startsWith(analyticsMonthFilter) : true;
+      const matchYear = analyticsYearFilter ? dateStr.startsWith(analyticsYearFilter) : true;
+      return matchMonth && matchYear;
+    });
+
+    const validExpenses = (expenses || []).filter(e => {
+      const dateStr = String(e.expense_date || '');
+      const matchMonth = analyticsMonthFilter ? dateStr.startsWith(analyticsMonthFilter) : true;
+      const matchYear = analyticsYearFilter ? dateStr.startsWith(analyticsYearFilter) : true;
+      return matchMonth && matchYear;
+    });
+
+    const income = (validPayments.reduce((acc, curr) => acc + (Number(curr.amount) || 0), 0)) +
+                   (validSales.reduce((acc, curr) => acc + (Number(curr.total_price) || 0), 0));
+    const cost = validExpenses.reduce((acc, curr) => acc + (Number(curr.amount) || 0), 0);
+
+    return {
+      total_income: income,
+      total_expenses: cost,
+      profit: income - cost,
+      filteredExpenses: validExpenses
+    };
+  }, [payments, sales, expenses, analyticsMonthFilter, analyticsYearFilter]);
+
   const fetchData = async () => {
     setIsLoading(true);
     setDatabaseStatus('checking');
@@ -314,24 +350,12 @@ export default function App() {
         name: (Array.isArray(a.members) ? a.members[0]?.name : a.members?.name) || 'Desconocido'
       })));
 
-      // 6. Financial Stats
-      const { data: pData } = await supabase.from('payments').select('amount');
+      // 6. Sales and Stats
       const { data: sData } = await supabase.from('sales').select('*, inventory(name)');
-      const { data: eData } = await supabase.from('expenses').select('amount');
-
       setSales((sData || []).map((s: any) => ({
         ...s,
         item_name: (Array.isArray(s.inventory) ? s.inventory[0]?.name : s.inventory?.name) || 'Producto Desconocido'
       })));
-
-      const totalIncome = (pData?.reduce((acc, curr) => acc + curr.amount, 0) || 0) +
-                          (sData?.reduce((acc, curr) => acc + curr.total_price, 0) || 0);
-      const totalExpenses = eData?.reduce((acc, curr) => acc + curr.amount, 0) || 0;
-      setFinancialStats({
-        total_income: totalIncome,
-        total_expenses: totalExpenses,
-        profit: totalIncome - totalExpenses
-      });
 
       // 7. Alerts
       const now = new Date();
@@ -1503,13 +1527,17 @@ export default function App() {
                     </div>
                     <div className="space-y-3">
                       {paymentAlerts.map(m => {
-                        const daysLeft = Math.ceil((new Date(m.last_expiry!).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24));
+                        const expiryDate = m.last_expiry ? new Date(m.last_expiry) : null;
+                        const daysLeft = expiryDate && !isNaN(expiryDate.getTime())
+                          ? Math.ceil((expiryDate.getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24))
+                          : null;
+                        
                         return (
                           <div key={m.id} className="bg-white p-4 rounded-2xl border border-rose-100 flex justify-between items-center shadow-sm">
                             <div>
                               <div className="font-bold text-slate-900">{m.name}</div>
-                              <div className={`text-[10px] font-black uppercase tracking-wider ${daysLeft < 0 ? 'text-rose-600' : 'text-amber-600'}`}>
-                                {daysLeft < 0 ? `Vencido hace ${Math.abs(daysLeft)}d` : daysLeft === 0 ? 'Vence hoy' : `Vence en ${daysLeft}d`}
+                              <div className={`text-[10px] font-black uppercase tracking-wider ${daysLeft !== null && daysLeft < 0 ? 'text-rose-600' : 'text-amber-600'}`}>
+                                {daysLeft === null ? 'Fecha inválida' : daysLeft < 0 ? `Vencido hace ${Math.abs(daysLeft)}d` : daysLeft === 0 ? 'Vence hoy' : `Vence en ${daysLeft}d`}
                               </div>
                             </div>
                             <div className="flex gap-2">
@@ -1672,7 +1700,10 @@ export default function App() {
                       .sort((a, b) => new Date(a.last_expiry!).getTime() - new Date(b.last_expiry!).getTime())
                       .slice(0, 4)
                       .map(m => {
-                        const daysLeft = Math.ceil((new Date(m.last_expiry!).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24));
+                        const expiryDate = m.last_expiry ? new Date(m.last_expiry) : null;
+                        const daysLeft = expiryDate && !isNaN(expiryDate.getTime())
+                          ? Math.ceil((expiryDate.getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24))
+                          : 0;
                         return (
                           <div key={m.id} className={`flex items-center justify-between p-4 rounded-2xl ${daysLeft <= 3 ? 'bg-rose-50 border border-rose-100' : 'bg-slate-50'}`}>
                             <div>
@@ -2187,9 +2218,79 @@ export default function App() {
 
         {activeTab === 'analytics' && (currentRole === 'Leslie' || currentRole === 'Jorge') && (
           <div className="space-y-8">
+            {/* Filtros de Reporte */}
+            <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-wrap gap-4 items-end">
+              <div>
+                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Año</label>
+                <select 
+                  className="bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 outline-none focus:ring-2 focus:ring-indigo-500/20 text-sm"
+                  value={analyticsYearFilter}
+                  onChange={e => {
+                    setAnalyticsYearFilter(e.target.value);
+                    setAnalyticsMonthFilter(''); 
+                  }}
+                >
+                  <option value="">Todos los años</option>
+                  {Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - 1 + i).map(y => (
+                    <option key={y} value={y.toString()}>{y}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Mes</label>
+                <select 
+                  className="bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 outline-none focus:ring-2 focus:ring-indigo-500/20 text-sm"
+                  value={analyticsMonthFilter}
+                  onChange={e => setAnalyticsMonthFilter(e.target.value)}
+                >
+                  <option value="">Todos los meses</option>
+                  {['01','02','03','04','05','06','07','08','09','10','11','12'].map(m => {
+                    const year = analyticsYearFilter || new Date().getFullYear().toString();
+                    return (
+                      <option key={m} value={`${year}-${m}`}>
+                        {new Date(parseInt(year), parseInt(m)-1).toLocaleString('es-ES', { month: 'long' })}
+                      </option>
+                    );
+                  })}
+                </select>
+              </div>
+              <button 
+                onClick={() => {
+                  setAnalyticsMonthFilter(new Date().toISOString().slice(0, 7));
+                  setAnalyticsYearFilter(new Date().getFullYear().toString());
+                }}
+                className="text-xs text-indigo-600 font-bold hover:underline mb-2.5"
+              >
+                Mes Actual
+              </button>
+              <button 
+                onClick={() => {
+                  setAnalyticsMonthFilter('');
+                  setAnalyticsYearFilter('');
+                }}
+                className="text-xs text-slate-400 font-bold hover:underline mb-2.5 ml-auto"
+              >
+                Limpiar Filtros
+              </button>
+            </div>
+
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
               <div className="bg-white p-8 rounded-3xl shadow-sm border border-slate-100">
-                <h3 className="text-xl font-bold mb-6">Balance General</h3>
+                <h3 className="text-xl font-bold mb-6 flex items-center justify-between">
+                  <span>Balance General</span>
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest bg-slate-50 px-3 py-1 rounded-full">
+                    {(() => {
+                      if (!analyticsMonthFilter) return analyticsYearFilter || 'Todo el tiempo';
+                      try {
+                        const [y, m] = analyticsMonthFilter.split('-');
+                        if (!y || !m) return analyticsMonthFilter;
+                        return new Date(parseInt(y), parseInt(m)-1).toLocaleString('es-ES', { month: 'long', year: 'numeric' });
+                      } catch (e) {
+                        return analyticsMonthFilter;
+                      }
+                    })()}
+                  </span>
+                </h3>
                 <div className="h-80">
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart
@@ -2224,7 +2325,7 @@ export default function App() {
                       <Pie
                         data={['rent', 'utilities', 'equipment', 'salary', 'other'].map(cat => ({
                           name: cat.toUpperCase(),
-                          value: expenses.filter(e => e.category === cat).reduce((acc, curr) => acc + curr.amount, 0)
+                          value: financialStats.filteredExpenses.filter(e => e.category === cat).reduce((acc, curr) => acc + curr.amount, 0)
                         })).filter(d => d.value > 0)}
                         cx="50%"
                         cy="50%"
