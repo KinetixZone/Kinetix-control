@@ -1262,6 +1262,24 @@ export default function App() {
     }
   };
 
+  const isExpired = (dateStr: string | null) => {
+    if (!dateStr) return true;
+    try {
+      const d = new Date(dateStr);
+      if (isNaN(d.getTime())) return true;
+      
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      
+      const expiry = new Date(d);
+      expiry.setHours(0, 0, 0, 0);
+      
+      return expiry.getTime() < today.getTime();
+    } catch (e) {
+      return true;
+    }
+  };
+
   const filteredMembers = members.filter(m => {
     const matchesSearch = (m.name?.toLowerCase() || '').includes(searchTerm.toLowerCase()) ||
                          (m.phone || '').includes(searchTerm);
@@ -1296,24 +1314,6 @@ export default function App() {
       expired: members.filter(m => isExpired(m.last_expiry || null)).length
     };
   }, [members]);
-
-  const isExpired = (dateStr: string | null) => {
-    if (!dateStr) return true;
-    try {
-      const d = new Date(dateStr);
-      if (isNaN(d.getTime())) return true;
-      
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      
-      const expiry = new Date(d);
-      expiry.setHours(0, 0, 0, 0);
-      
-      return expiry.getTime() < today.getTime();
-    } catch (e) {
-      return true;
-    }
-  };
 
   const getStatusColor = (expiry: string | null) => {
     if (!expiry) return 'bg-gray-100 text-gray-500';
