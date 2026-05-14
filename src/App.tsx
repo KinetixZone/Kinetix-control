@@ -27,7 +27,10 @@ import {
   Trash2,
   Edit,
   Info,
-  FileText
+  FileText,
+  Receipt,
+  Wallet,
+  Apple
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
@@ -95,7 +98,7 @@ export default function App() {
   const [selectedUserForPin, setSelectedUserForPin] = useState<string | null>(null);
   const [paymentAlerts, setPaymentAlerts] = useState<any[]>([]);
   const [birthdayAlerts, setBirthdayAlerts] = useState<any[]>([]);
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'members' | 'payments' | 'expenses' | 'analytics' | 'attendance' | 'inventory' | 'users' | 'sales' | 'personalized'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'members' | 'payments' | 'expenses' | 'analytics' | 'attendance' | 'inventory' | 'users' | 'sales' | 'personalized' | 'nutrition'>('dashboard');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [showAddMember, setShowAddMember] = useState(false);
   const [showAddPayment, setShowAddPayment] = useState(false);
@@ -322,6 +325,22 @@ export default function App() {
       payments: pPayments,
       expensesList: pExpenses,
       memberCount: members.filter(m => m.service_type === 'personalized').length
+    };
+  }, [payments, expenses, members]);
+
+  const nutritionStats = useMemo(() => {
+    const nPayments = (payments || []).filter(p => p.category === 'nutrition');
+    const nExpenses = (expenses || []).filter(e => e.category === 'nutrition');
+    
+    const income = nPayments.reduce((acc, curr) => acc + (Number(curr.amount) || 0), 0);
+    const cost = nExpenses.reduce((acc, curr) => acc + (Number(curr.amount) || 0), 0);
+
+    return {
+      income,
+      expenses: cost,
+      profit: income - cost,
+      payments: nPayments,
+      memberCount: members.filter(m => m.service_type === 'nutrition').length
     };
   }, [payments, expenses, members]);
 
@@ -1567,6 +1586,14 @@ export default function App() {
             <ShieldCheck size={20} className={activeTab === 'personalized' ? 'text-amber-500' : ''} />
             <span className="font-medium">Personalizados</span>
           </button>
+
+          <button 
+            onClick={() => { setActiveTab('nutrition'); setIsMobileMenuOpen(false); }}
+            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'nutrition' ? 'bg-emerald-50 text-emerald-600' : 'text-slate-500 hover:bg-slate-50'}`}
+          >
+            <Apple size={20} className={activeTab === 'nutrition' ? 'text-emerald-500' : ''} />
+            <span className="font-medium">Nutrición</span>
+          </button>
           <button 
             onClick={() => { setActiveTab('sales'); setIsMobileMenuOpen(false); }}
             className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'sales' ? 'bg-blue-50 text-blue-600' : 'text-slate-500 hover:bg-slate-50'}`}
@@ -1648,6 +1675,7 @@ export default function App() {
               {activeTab === 'inventory' && 'Inventario'}
               {activeTab === 'users' && 'Personal'}
               {activeTab === 'personalized' && 'Entrenamientos Personalizados'}
+              {activeTab === 'nutrition' && 'Servicio de Nutrición'}
             </h2>
             <div className="h-6 mt-1 flex items-center gap-2">
               <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
@@ -3447,6 +3475,149 @@ export default function App() {
                             <div>
                                 <span className="px-2 py-1 bg-amber-50 text-amber-600 rounded-lg text-[10px] font-black uppercase tracking-tighter">
                                     Vence: {m.last_expiry ? new Date(m.last_expiry).toLocaleDateString() : 'N/A'}
+                                </span>
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+               </div>
+            </div>
+          </div>
+        )}
+        {activeTab === 'nutrition' && (
+          <div className="space-y-6 lg:space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
+            {/* Context Header */}
+            <div className="bg-gradient-to-br from-emerald-500 to-teal-600 p-8 rounded-[2.5rem] text-white shadow-xl shadow-emerald-500/20 relative overflow-hidden">
+               <div className="absolute top-0 right-0 w-64 h-64 bg-white/10 rounded-full -translate-y-32 translate-x-32 blur-3xl" />
+               <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
+                <div>
+                  <h3 className="text-3xl font-black mb-2 flex items-center gap-3">
+                    <Apple size={32} />
+                    Servicios de Nutrición
+                  </h3>
+                  <p className="text-emerald-50/80 font-medium max-w-md">
+                    Control de consultas, alumnos y contabilidad del servicio de nutrición.
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-3">
+                   <button 
+                    onClick={() => {
+                        setNewMember({ ...newMember, service_type: 'nutrition' });
+                        setShowAddMember(true);
+                    }}
+                    className="bg-white/20 hover:bg-white/30 backdrop-blur-md px-6 py-3 rounded-2xl font-bold transition-all flex items-center gap-2 border border-white/20"
+                   >
+                     <Plus size={20} />
+                     Nuevo Paciente
+                   </button>
+                   <button 
+                    onClick={() => {
+                        setNewPayment({ ...newPayment, category: 'nutrition' });
+                        setShowAddPayment(true);
+                    }}
+                    className="bg-white text-emerald-600 px-6 py-3 rounded-2xl font-bold transition-all shadow-lg hover:bg-emerald-50 flex items-center gap-2"
+                   >
+                     <Receipt size={20} />
+                     Registrar Consulta
+                   </button>
+                </div>
+               </div>
+            </div>
+
+            {/* Stats Cards */}
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+               <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm">
+                  <div className="w-12 h-12 bg-blue-50 text-blue-600 rounded-2xl flex items-center justify-center mb-4">
+                    <Users size={24} />
+                  </div>
+                  <p className="text-sm font-bold text-slate-400 uppercase tracking-wider">Pacientes Totales</p>
+                  <h4 className="text-3xl font-black text-slate-900 mt-1">{nutritionStats.memberCount}</h4>
+               </div>
+               <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm">
+                  <div className="w-12 h-12 bg-emerald-50 text-emerald-600 rounded-2xl flex items-center justify-center mb-4">
+                    <TrendingUp size={24} />
+                  </div>
+                  <p className="text-sm font-bold text-slate-400 uppercase tracking-wider">Ingresos</p>
+                  <h4 className="text-3xl font-black text-slate-900 mt-1">${nutritionStats.income.toFixed(2)}</h4>
+               </div>
+               <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm">
+                  <div className="w-12 h-12 bg-rose-50 text-rose-600 rounded-2xl flex items-center justify-center mb-4">
+                    <TrendingDown size={24} />
+                  </div>
+                  <p className="text-sm font-bold text-slate-400 uppercase tracking-wider">Gastos</p>
+                  <h4 className="text-3xl font-black text-slate-900 mt-1">${nutritionStats.expenses.toFixed(2)}</h4>
+               </div>
+               <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm">
+                  <div className="w-12 h-12 bg-emerald-50 text-emerald-600 rounded-2xl flex items-center justify-center mb-4">
+                    <DollarSign size={24} />
+                  </div>
+                  <p className="text-sm font-bold text-slate-400 uppercase tracking-wider">Utilidad</p>
+                  <h4 className="text-3xl font-black text-slate-900 mt-1">${nutritionStats.profit.toFixed(2)}</h4>
+               </div>
+            </div>
+
+            {/* List Sections */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+               {/* Last Payments */}
+               <div className="bg-white rounded-[2rem] border border-slate-100 shadow-sm overflow-hidden flex flex-col">
+                  <div className="p-6 border-b border-slate-50 flex items-center justify-between">
+                    <h3 className="text-xl font-black text-slate-900">Últimas Consultas / Pagos</h3>
+                    <Receipt className="text-slate-400" size={20} />
+                  </div>
+                  <div className="overflow-y-auto max-h-[400px]">
+                    <div className="divide-y divide-slate-50">
+                      {nutritionStats.payments.length === 0 ? (
+                        <div className="p-12 text-center text-slate-400 italic">No hay pagos registrados aún.</div>
+                      ) : (
+                        nutritionStats.payments.slice(0, 10).map(p => (
+                          <div key={p.id} className="p-4 hover:bg-slate-50 flex items-center justify-between transition-all">
+                            <div className="flex items-center gap-4">
+                              <div className="w-10 h-10 bg-emerald-50 text-emerald-600 rounded-xl flex items-center justify-center font-bold">
+                                $
+                              </div>
+                              <div>
+                                <p className="font-bold text-slate-900">{members.find(m => m.id === p.member_id)?.name || 'Paciente'}</p>
+                                <p className="text-xs text-slate-500">{new Date(p.payment_date).toLocaleDateString()}</p>
+                              </div>
+                            </div>
+                            <div className="text-right">
+                              <p className="font-black text-slate-900">${(Number(p.amount) || 0).toFixed(2)}</p>
+                              <p className="text-[10px] text-slate-400 uppercase font-black tracking-widest text-[9px]">{p.payment_type}</p>
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+               </div>
+
+               {/* Pacientes List */}
+               <div className="bg-white rounded-[2rem] border border-slate-100 shadow-sm overflow-hidden flex flex-col">
+                  <div className="p-6 border-b border-slate-50 flex items-center justify-between">
+                    <h3 className="text-xl font-black text-slate-900">Pacientes Activos</h3>
+                    <Users className="text-slate-400" size={20} />
+                  </div>
+                  <div className="overflow-y-auto max-h-[400px]">
+                    <div className="divide-y divide-slate-50">
+                      {members.filter(m => m.service_type === 'nutrition').length === 0 ? (
+                        <div className="p-12 text-center text-slate-400 italic">No hay pacientes registrados.</div>
+                      ) : (
+                        members.filter(m => m.service_type === 'nutrition').map(m => (
+                          <div key={m.id} className="p-4 hover:bg-slate-50 flex items-center justify-between transition-all">
+                            <div className="flex items-center gap-4">
+                              <div className="w-10 h-10 bg-emerald-50 text-emerald-600 rounded-xl flex items-center justify-center font-bold">
+                                {m.name?.charAt(0)}
+                              </div>
+                              <div>
+                                <p className="font-bold text-slate-900">{m.name}</p>
+                                <p className="text-xs text-slate-500">{m.phone || 'Sin teléfono'}</p>
+                              </div>
+                            </div>
+                            <div className="text-right">
+                                <span className="px-2 py-1 bg-emerald-50 text-emerald-700 rounded-lg text-[10px] font-black uppercase tracking-tighter">
+                                    NUTRICIÓN
                                 </span>
                             </div>
                           </div>
