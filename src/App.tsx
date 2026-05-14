@@ -69,6 +69,7 @@ export default function App() {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [showAddMember, setShowAddMember] = useState(false);
   const [showAddPayment, setShowAddPayment] = useState(false);
+  const [databaseStatus, setDatabaseStatus] = useState<'online' | 'offline' | 'checking'>('checking');
   const [showAddExpense, setShowAddExpense] = useState(false);
   const [showAddInventory, setShowAddInventory] = useState(false);
   const [showMakeSale, setShowMakeSale] = useState(false);
@@ -232,13 +233,16 @@ export default function App() {
 
   const fetchData = async () => {
     setIsLoading(true);
+    setDatabaseStatus('checking');
     try {
       // 1. Members with payments for last_expiry
-      const { data: membersData } = await supabase
+      const { data: membersData, error: mError } = await supabase
         .from('members')
         .select('*, payments(expiry_date)')
         .order('name');
       
+      if (mError) throw mError;
+
       const transformedMembers = (membersData || []).map(m => {
         const expiries = (m.payments || [])
           .map((p: any) => p.expiry_date)
@@ -249,11 +253,13 @@ export default function App() {
       setMembers(transformedMembers);
 
       // 2. Payments
-      const { data: paymentsData } = await supabase
+      const { data: paymentsData, error: pError } = await supabase
         .from('payments')
         .select('*, members(name)')
         .order('payment_date', { ascending: false });
       
+      if (pError) throw pError;
+
       const transformedPayments = (paymentsData || []).map((p: any) => ({
         ...p,
         member_name: (Array.isArray(p.members) ? p.members[0]?.name : p.members?.name) || 'Desconocido',
@@ -262,11 +268,13 @@ export default function App() {
       setPayments(transformedPayments);
 
       // 3. Expenses
-      const { data: expensesData } = await supabase
+      const { data: expensesData, error: eError } = await supabase
         .from('expenses')
         .select('*')
         .order('expense_date', { ascending: false });
       
+      if (eError) throw eError;
+
       const decryptedExpenses = (expensesData || []).map(e => ({
         ...e,
         description: decryptData(e.description)
@@ -274,20 +282,23 @@ export default function App() {
       setExpenses(decryptedExpenses);
 
       // 4. Inventory
-      const { data: inventoryData } = await supabase
+      const { data: inventoryData, error: iError } = await supabase
         .from('inventory')
         .select('*')
         .order('name');
+      if (iError) throw iError;
       setInventory(inventoryData || []);
 
       // 5. Attendance (Today)
       const today = new Date().toISOString().split('T')[0];
-      const { data: attendanceData } = await supabase
+      const { data: attendanceData, error: aError } = await supabase
         .from('attendance')
         .select('*, members(name)')
         .gte('check_in_time', `${today}T00:00:00`)
         .order('check_in_time', { ascending: false });
       
+      if (aError) throw aError;
+
       setAttendance((attendanceData || []).map((a: any) => ({
         ...a,
         name: (Array.isArray(a.members) ? a.members[0]?.name : a.members?.name) || 'Desconocido'
@@ -333,16 +344,18 @@ export default function App() {
       
       // 8. Users (Admin only)
       if (currentRole === 'Leslie' || currentRole === 'Jorge') {
-        const { data: usersData } = await supabase.from('users').select('username, role');
-        setUsers(usersData || []);
+        const { data: usersData, error: uError } = await supabase.from('users').select('username, role');
+        if (!uError) setUsers(usersData || []);
       }
 
+      setDatabaseStatus('online');
       setIsLoading(false);
     } catch (error: any) {
       console.error('Error fetching data:', error);
       setIsLoading(false);
-      if (error.message === 'Failed to fetch') {
-        addToast('Error de conexión. Revisa tu internet.', 'error');
+      setDatabaseStatus('offline');
+      if (error.message === 'Failed to fetch' || (error.message && error.message.includes('fetch'))) {
+        addToast('Error de conexión. Revisa tu internet o si Supabase está pausado.', 'error');
       }
     }
   };
@@ -654,29 +667,13 @@ export default function App() {
         setErrorMsg('');
         setIsSubmitting(true);
         try {
-          // Prepare data: only include fields that have values to avoid schema/null issues
+          // Prepare data: handle optional fields correctly
           const memberData: any = {
-            name: newMember.name.trim()
+            name: newMember.name.trim(),
+            phone: newMember.phone?.trim() || null,
+            email: newMember.email?.trim() || null,
+            birth_date: newMember.birth_date || null
           };
-
-          if (newMember.phone && newMember.phone.trim()) {
-            memberData.phone = newMember.phone.trim();
-          } else if (isEditing) {
-            // If editing and phone is cleared, explicitly send null
-            memberData.phone = null;
-          }
-
-          if (newMember.email && newMember.email.trim()) {
-            memberData.email = newMember.email.trim();
-          } else if (isEditing) {
-            memberData.email = null;
-          }
-
-          if (newMember.birth_date) {
-            memberData.birth_date = newMember.birth_date;
-          } else if (isEditing) {
-            memberData.birth_date = null;
-          }
 
           let result;
           if (isEditing) {
@@ -693,8 +690,11 @@ export default function App() {
           if (result.error) {
             console.error('Supabase error saving member:', result.error);
             if (result.error?.code === '23505') {
-              setErrorMsg('Este dato ya está registrado a otro miembro.');
+              setErrorMsg('Este dato (teléfono o email) ya está registrado a otro miembro.');
               addToast('Dato duplicado', 'error');
+            } else if (result.error?.message?.includes('Failed to fetch')) {
+              setErrorMsg('Error de conexión: No se pudo contactar con Supabase. Verifica si tu proyecto está pausado.');
+              addToast('Error de conexión', 'error');
             } else {
               setErrorMsg('Error de base de datos: ' + result.error.message);
               addToast('Error en el servidor', 'error');
@@ -711,8 +711,8 @@ export default function App() {
           fetchData();
         } catch (error: any) {
           console.error('Network or Runtime error saving member:', error);
-          const detail = error.message === 'Failed to fetch' 
-            ? 'Error de conexión con la base de datos. Verifica tu internet o si Supabase está activo.'
+          const detail = (error.message === 'Failed to fetch' || error.message?.includes('fetch'))
+            ? 'Error de conexión. Verifica si tu proyecto de Supabase está PAUSADO o si no tienes internet.'
             : error.message;
           setErrorMsg('Error al guardar: ' + detail);
           addToast('Error de conexión', 'error');
@@ -1369,6 +1369,12 @@ export default function App() {
             </button>
           )}
           <div className="p-4 bg-slate-50 rounded-2xl">
+            <div className="flex items-center gap-2 mb-3 px-1">
+              <div className={`w-2 h-2 rounded-full ${databaseStatus === 'online' ? 'bg-emerald-500 shadow-[0_0_8px_#10b981]' : databaseStatus === 'offline' ? 'bg-rose-500 shadow-[0_0_8px_#f43f5e]' : 'bg-amber-500 animate-pulse'}`}></div>
+              <span className="text-[9px] uppercase tracking-widest font-black text-slate-400">
+                DB: {databaseStatus === 'online' ? 'Conectada' : databaseStatus === 'offline' ? 'PAUSADA/DESCONECTADA' : 'Verificando...'}
+              </span>
+            </div>
             <div className="flex items-center gap-3 mb-3">
               <div className="w-8 h-8 bg-slate-200 rounded-full flex items-center justify-center text-slate-600">
                 <User size={16} />
