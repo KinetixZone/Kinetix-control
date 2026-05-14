@@ -43,6 +43,7 @@ import {
   PieChart,
   Pie
 } from 'recharts';
+import * as XLSX from 'xlsx';
 import { supabase } from './lib/supabase';
 import { encryptData, decryptData } from './lib/encryption';
 import { Member, Payment, Expense, FinancialStats, InventoryItem } from './types';
@@ -668,6 +669,37 @@ export default function App() {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+  };
+
+  const handleExportExcel = (data: any[], fileName: string) => {
+    const ws = XLSX.utils.json_to_sheet(data);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Datos");
+    XLSX.writeFile(wb, `${fileName}_${new Date().toISOString().split('T')[0]}.xlsx`);
+  };
+
+  const exportMembersToExcel = () => {
+    const dataToExport = filteredMembers.map(m => ({
+      Nombre: m.name,
+      Telefono: m.phone || '-',
+      Email: m.email || '-',
+      'Fecha Nacimiento': m.birth_date || '-',
+      Estado: m.last_expiry ? (isExpired(m.last_expiry) ? 'Vencido' : 'Activo') : 'Sin Pagos',
+      Vencimiento: m.last_expiry ? new Date(m.last_expiry).toLocaleDateString() : '-'
+    }));
+    handleExportExcel(dataToExport, 'miembros_kinetix');
+  };
+
+  const exportPaymentsToExcel = (paymentsList: Payment[]) => {
+    const dataToExport = paymentsList.map(p => ({
+      Miembro: p.member_name,
+      Monto: p.amount,
+      Tipo: p.payment_type === 'monthly' ? 'Mensualidad' : 'Visita',
+      Fecha: p.payment_date ? new Date(p.payment_date).toLocaleDateString() : '-',
+      Notas: p.notes || '-',
+      'Recibido por': p.received_by
+    }));
+    handleExportExcel(dataToExport, 'pagos_kinetix');
   };
 
   const exportToXML = (data: any[], filename: string, rootName: string, itemName: string) => {
@@ -1853,8 +1885,8 @@ export default function App() {
 
         {activeTab === 'members' && (
           <div className="space-y-4">
-            <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-4">
-              <div className="relative w-full">
+            <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-4 flex flex-col md:flex-row gap-4 items-center">
+              <div className="relative flex-1 w-full">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
                 <input 
                   type="text" 
@@ -1864,6 +1896,13 @@ export default function App() {
                   onChange={(e) => setSearchTerm(e.target.value)}
                 />
               </div>
+              <button 
+                onClick={exportMembersToExcel}
+                className="flex items-center gap-2 bg-emerald-50 text-emerald-700 px-6 py-3 rounded-xl hover:bg-emerald-100 transition-all font-bold text-sm border border-emerald-100 whitespace-nowrap"
+              >
+                <ShoppingBag size={18} />
+                Excel (Filtrados)
+              </button>
             </div>
 
             {/* Mobile Cards View */}
@@ -2068,8 +2107,16 @@ export default function App() {
                 {currentRole === 'Leslie' && (
                   <div className="flex gap-2">
                     <button 
+                      onClick={() => exportPaymentsToExcel(filteredPayments)}
+                      className="flex items-center gap-2 text-xs bg-emerald-50 text-emerald-700 border border-emerald-100 px-4 py-2 rounded-xl hover:bg-emerald-100 transition-all font-bold shadow-sm"
+                      title="Exportar a Excel"
+                    >
+                      <ShoppingBag size={14} />
+                      Excel
+                    </button>
+                    <button 
                       onClick={() => exportPaymentsToCSV(filteredPayments)}
-                      className="flex items-center gap-2 text-xs bg-emerald-600 text-white px-4 py-2 rounded-xl hover:bg-emerald-700 transition-all font-bold shadow-sm"
+                      className="flex items-center gap-2 text-xs bg-slate-50 text-slate-600 border border-slate-200 px-4 py-2 rounded-xl hover:bg-slate-100 transition-all font-bold shadow-sm"
                       title="Exportar a CSV"
                     >
                       <DollarSign size={14} />
