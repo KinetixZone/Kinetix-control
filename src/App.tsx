@@ -1265,20 +1265,37 @@ export default function App() {
   const filteredMembers = members.filter(m => {
     const matchesSearch = (m.name?.toLowerCase() || '').includes(searchTerm.toLowerCase()) ||
                          (m.phone || '').includes(searchTerm);
-    const matchesMonth = memberMonthFilter ? m.created_at?.startsWith(memberMonthFilter) : true;
     
     let matchesTab = true;
-    if (memberFilterTab === 'new') matchesTab = m.created_at?.startsWith(new Date().toISOString().slice(0, 7)) || false;
-    if (memberFilterTab === 'active') matchesTab = m.last_expiry ? !isExpired(m.last_expiry) : false;
-    if (memberFilterTab === 'expired') matchesTab = m.last_expiry ? isExpired(m.last_expiry) : false;
+
+    if (memberFilterTab === 'new') {
+      const monthToMatch = memberMonthFilter || new Date().toISOString().slice(0, 7);
+      matchesTab = !!m.created_at && m.created_at.startsWith(monthToMatch);
+    } else if (memberFilterTab === 'active') {
+      matchesTab = !!m.last_expiry && !isExpired(m.last_expiry);
+    } else if (memberFilterTab === 'expired') {
+      matchesTab = isExpired(m.last_expiry || null);
+    }
+    // Tab 'all' implies matchesTab = true
+
+    // Only apply memberMonthFilter as a general filter if NOT in 'new' tab (where it's already used) or 'all' tab
+    // Actually, let's make memberMonthFilter match created_at generally unless specifically in a tab that specifies its own rules
+    const matchesMonth = (memberFilterTab !== 'new' && memberMonthFilter) 
+      ? m.created_at?.startsWith(memberMonthFilter) || false 
+      : true;
 
     return matchesSearch && matchesMonth && matchesTab;
   });
 
-  const newMembersCount = useMemo(() => {
-    const currentMonth = memberMonthFilter || new Date().toISOString().slice(0, 7);
-    return members.filter(m => m.created_at?.startsWith(currentMonth)).length;
-  }, [members, memberMonthFilter]);
+  const memberStats = useMemo(() => {
+    const currentMonth = new Date().toISOString().slice(0, 7);
+    return {
+      all: members.length,
+      new: members.filter(m => m.created_at?.startsWith(currentMonth)).length,
+      active: members.filter(m => m.last_expiry && !isExpired(m.last_expiry)).length,
+      expired: members.filter(m => isExpired(m.last_expiry || null)).length
+    };
+  }, [members]);
 
   const isExpired = (dateStr: string | null) => {
     if (!dateStr) return true;
@@ -1937,10 +1954,10 @@ export default function App() {
           <div className="space-y-4">
             <div className="flex flex-wrap gap-2 mb-2 p-1 bg-slate-100 rounded-2xl w-fit">
               {[
-                { id: 'all', label: 'Todos', icon: Users },
-                { id: 'new', label: 'Nuevos (Mes)', icon: UserPlus },
-                { id: 'active', label: 'Activos', icon: ShieldCheck },
-                { id: 'expired', label: 'Vencidos', icon: AlertCircle }
+                { id: 'all', label: 'Todos', icon: Users, count: memberStats.all },
+                { id: 'new', label: 'Nuevos (Mes)', icon: UserPlus, count: memberStats.new },
+                { id: 'active', label: 'Activos', icon: ShieldCheck, count: memberStats.active },
+                { id: 'expired', label: 'Vencidos', icon: AlertCircle, count: memberStats.expired }
               ].map(tab => (
                 <button
                   key={tab.id}
@@ -1953,6 +1970,11 @@ export default function App() {
                 >
                   <tab.icon size={14} />
                   {tab.label}
+                  <span className={`px-1.5 py-0.5 rounded-lg text-[9px] ${
+                    memberFilterTab === tab.id ? 'bg-indigo-50 text-indigo-600' : 'bg-slate-200 text-slate-500'
+                  }`}>
+                    {tab.count}
+                  </span>
                 </button>
               ))}
             </div>
@@ -1969,10 +1991,6 @@ export default function App() {
                 />
               </div>
               <div className="flex flex-col sm:flex-row gap-4 w-full md:w-auto">
-                <div className="flex items-center gap-3 bg-indigo-50/50 p-2 pl-4 rounded-xl border border-indigo-100/50">
-                  <div className="text-[10px] font-black text-indigo-400 uppercase tracking-widest leading-none">Miembros<br/>Nuevos</div>
-                  <div className="text-2xl font-black text-indigo-600 font-mono pr-2">{newMembersCount}</div>
-                </div>
                 <input 
                   type="month" 
                   className="px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all text-sm"
