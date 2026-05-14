@@ -137,7 +137,8 @@ export default function App() {
     received_by: '',
     months: 1,
     notes: '',
-    start_date: new Date().toISOString().split('T')[0]
+    start_date: new Date().toISOString().split('T')[0],
+    expiry_date: ''
   });
   const [newExpense, setNewExpense] = useState({
     description: '',
@@ -531,7 +532,8 @@ export default function App() {
       received_by: payment.received_by,
       notes: payment.notes || '',
       start_date: payment.payment_date ? payment.payment_date.split('T')[0] : new Date().toISOString().split('T')[0],
-      months: 1
+      months: 1,
+      expiry_date: payment.expiry_date ? payment.expiry_date.split('T')[0] : ''
     });
     setIsEditing(true);
     setEditingId(payment.id);
@@ -866,15 +868,21 @@ export default function App() {
                   finalPaymentDate = parsedDate.toISOString();
                   
                   if (newPayment.payment_type === 'monthly') {
-                    const expDate = new Date(parsedDate);
-                    expDate.setMonth(expDate.getMonth() + (Number(newPayment.months) || 1));
-                    expiry_date = expDate.toISOString();
+                    if (newPayment.expiry_date) {
+                      const expParts = newPayment.expiry_date.split('-');
+                      if (expParts.length === 3) {
+                        expiry_date = new Date(parseInt(expParts[0]), parseInt(expParts[1]) - 1, parseInt(expParts[2]), 23, 59, 59).toISOString();
+                      }
+                    } else {
+                      const expDate = new Date(parsedDate);
+                      expDate.setMonth(expDate.getMonth() + (Number(newPayment.months) || 1));
+                      expiry_date = expDate.toISOString();
+                    }
                   }
                 }
               }
             } catch (dateErr) {
               console.error('Error parsing date:', dateErr);
-              // Fallback to today's date if parsing fails spectacularly
               finalPaymentDate = new Date().toISOString();
             }
           }
@@ -925,7 +933,8 @@ export default function App() {
             received_by: '',
             months: 1,
             notes: '',
-            start_date: new Date().toISOString().split('T')[0]
+            start_date: new Date().toISOString().split('T')[0],
+            expiry_date: ''
           });
           setIsEditing(false);
           setEditingId(null);
@@ -3159,8 +3168,13 @@ export default function App() {
               >
                 <X size={24} />
               </button>
-              <h3 className="text-2xl font-bold mb-6">Registrar Pago</h3>
-              <form onSubmit={handleAddPayment} className="space-y-4">
+                <div className="p-8 border-b border-slate-50">
+                  <h3 className="text-2xl font-black text-slate-900">{isEditing ? 'Editar Pago' : 'Registrar Pago'}</h3>
+                  <p className="text-sm text-slate-500">
+                    {isEditing ? 'Corrige los datos de la transacción' : 'Registra una nueva entrada de dinero'}
+                  </p>
+                </div>
+                <form onSubmit={handleAddPayment} className="p-8 space-y-6">
                 <div>
                   <label className="block text-sm font-semibold text-slate-700 mb-1">Buscar Miembro</label>
                   <div className="relative mb-2">
@@ -3234,9 +3248,20 @@ export default function App() {
                         className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 outline-none"
                         value={newPayment.months}
                         onChange={e => {
-                          const months = parseInt(e.target.value);
+                          const months = parseInt(e.target.value) || 1;
                           const suggestedAmount = 500 * months;
-                          setNewPayment({...newPayment, months, amount: suggestedAmount});
+                          
+                          let newExp = newPayment.expiry_date;
+                          if (newPayment.start_date) {
+                            const parts = newPayment.start_date.split('-');
+                            if (parts.length === 3) {
+                              const d = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
+                              d.setMonth(d.getMonth() + months);
+                              newExp = d.toISOString().split('T')[0];
+                            }
+                          }
+                          
+                          setNewPayment({...newPayment, months, amount: suggestedAmount, expiry_date: newExp});
                         }}
                       />
                     </div>
@@ -3244,16 +3269,36 @@ export default function App() {
                 </div>
 
                 {newPayment.payment_type === 'monthly' && (
-                  <div>
-                    <label className="block text-sm font-semibold text-slate-700 mb-1">Fecha de Pago / Inicio de Vigencia</label>
-                    <input 
-                      required
-                      type="date" 
-                      className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 outline-none"
-                      value={newPayment.start_date}
-                      onChange={e => setNewPayment({...newPayment, start_date: e.target.value})}
-                    />
-                    <p className="text-[10px] text-slate-400 mt-1">El mes comenzará a contar desde esta fecha y se registrará como la fecha de pago.</p>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-semibold text-slate-700 mb-1">Fecha Inicio Vigencia</label>
+                      <input 
+                        required
+                        type="date" 
+                        className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 outline-none"
+                        value={newPayment.start_date}
+                        onChange={e => {
+                          const newStart = e.target.value;
+                          const parts = newStart.split('-');
+                          let newExp = '';
+                          if (parts.length === 3) {
+                            const d = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
+                            d.setMonth(d.getMonth() + (Number(newPayment.months) || 1));
+                            newExp = d.toISOString().split('T')[0];
+                          }
+                          setNewPayment({...newPayment, start_date: newStart, expiry_date: newExp});
+                        }}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-semibold text-slate-700 mb-1 font-bold text-indigo-600">Fecha de Vencimiento</label>
+                      <input 
+                        type="date" 
+                        className="w-full px-4 py-2 bg-indigo-50 border border-indigo-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 outline-none font-bold"
+                        value={newPayment.expiry_date}
+                        onChange={e => setNewPayment({...newPayment, expiry_date: e.target.value})}
+                      />
+                    </div>
                   </div>
                 )}
 
@@ -3365,7 +3410,7 @@ export default function App() {
                         Procesando...
                       </>
                     ) : (
-                      'Confirmar Pago'
+                      isEditing ? 'Guardar Cambios' : 'Confirmar Pago'
                     )}
                   </button>
                 </div>
