@@ -231,6 +231,12 @@ export default function App() {
     );
   };
 
+  useEffect(() => {
+    if (showAddPayment) {
+      setPaymentSearchTerm('');
+    }
+  }, [showAddPayment]);
+
   const fetchData = async () => {
     setIsLoading(true);
     setDatabaseStatus('checking');
@@ -238,14 +244,17 @@ export default function App() {
       // 1. Members with payments for last_expiry
       const { data: membersData, error: mError } = await supabase
         .from('members')
-        .select('*, payments(expiry_date)')
+        .select('*')
         .order('name');
       
       if (mError) throw mError;
 
+      // Also get all payments to calculate expiry in memory to avoid query join issues
+      const { data: allPayments } = await supabase.from('payments').select('member_id, expiry_date');
+
       const transformedMembers = (membersData || []).map(m => {
-        const paymentsArray = Array.isArray(m.payments) ? m.payments : (m.payments ? [m.payments] : []);
-        const expiries = paymentsArray
+        const memberPayments = (allPayments || []).filter(p => String(p.member_id) === String(m.id));
+        const expiries = memberPayments
           .map((p: any) => p.expiry_date)
           .filter(Boolean)
           .sort((a: string, b: string) => new Date(b).getTime() - new Date(a).getTime());
@@ -2862,32 +2871,43 @@ export default function App() {
                       type="text" 
                       placeholder="Escribe nombre o teléfono..."
                       className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 outline-none text-sm"
-                      onChange={(e) => setSearchTerm(e.target.value)}
+                      value={paymentSearchTerm}
+                      onChange={(e) => setPaymentSearchTerm(e.target.value)}
                     />
                   </div>
                     <select 
                       required
-                      className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 outline-none"
+                      className={`w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 outline-none ${members.length === 0 ? 'opacity-50 pointer-events-none' : ''}`}
                       value={newPayment.member_id}
                       onChange={e => {
-                        const id = parseInt(e.target.value);
-                        const member = members.find(m => m.id === id);
+                        const val = e.target.value;
+                        if (!val) return;
+                        const id = val;
+                        const member = members.find(m => String(m.id) === String(id));
                         const suggestedStart = member?.last_expiry && new Date(member.last_expiry) > new Date()
                           ? new Date(member.last_expiry).toISOString().split('T')[0]
                           : new Date().toISOString().split('T')[0];
-                        setNewPayment({...newPayment, member_id: id, start_date: suggestedStart});
+                        setNewPayment({...newPayment, member_id: id as any, start_date: suggestedStart});
                         setSelectedMember(member || null);
                       }}
                     >
-                      <option value="">Seleccionar miembro...</option>
+                      <option value="">{members.length === 0 ? 'Sin miembros registrados' : 'Seleccionar miembro...'}</option>
                       {members
-                        .filter(m => 
-                          (m.name || '').toLowerCase().includes((searchTerm || '').toLowerCase()) || 
-                          (m.phone || '').includes(searchTerm || '')
-                        )
+                        .filter(m => {
+                          const s = paymentSearchTerm.toLowerCase();
+                          return (m.name || '').toLowerCase().includes(s) || 
+                                 (m.phone || '').includes(s);
+                        })
                         .map(m => (
                           <option key={m.id} value={m.id}>{m.name} {m.phone ? `(${m.phone})` : ''}</option>
                         ))}
+                      {paymentSearchTerm && members.filter(m => {
+                        const s = paymentSearchTerm.toLowerCase();
+                        return (m.name || '').toLowerCase().includes(s) || 
+                               (m.phone || '').includes(s);
+                      }).length === 0 && (
+                        <option disabled>No se encontró "{paymentSearchTerm}"</option>
+                      )}
                     </select>
                 </div>
 
