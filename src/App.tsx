@@ -130,7 +130,7 @@ export default function App() {
   // Form states
   const [newMember, setNewMember] = useState({ name: '', phone: '', email: '', birth_date: '' });
   const [newPayment, setNewPayment] = useState({
-    member_id: 0,
+    member_id: '' as any,
     amount: 500,
     payment_type: 'monthly' as 'monthly' | 'visit',
     discount_type: 'none' as 'birthday' | 'other' | 'none',
@@ -702,6 +702,17 @@ export default function App() {
     handleExportExcel(dataToExport, 'pagos_kinetix');
   };
 
+  const exportExpensesToExcel = () => {
+    const dataToExport = filteredExpenses.map(e => ({
+      Descripcion: e.description,
+      Monto: e.amount,
+      Categoria: e.category,
+      Fecha: e.expense_date ? new Date(e.expense_date).toLocaleDateString() : '-',
+      RegistradoPor: e.created_by
+    }));
+    handleExportExcel(dataToExport, 'gastos_kinetix');
+  };
+
   const exportToXML = (data: any[], filename: string, rootName: string, itemName: string) => {
     let xmlContent = `<?xml version="1.0" encoding="UTF-8"?>\n<${rootName}>\n`;
     
@@ -957,8 +968,8 @@ export default function App() {
           setShowAddPayment(false);
           setSelectedMember(null);
           setNewPayment({
-            member_id: 0,
-            amount: 500,
+            member_id: '' as any,
+            amount: 0,
             payment_type: 'monthly',
             discount_type: 'none',
             discount_amount: 0,
@@ -968,6 +979,7 @@ export default function App() {
             start_date: new Date().toISOString().split('T')[0],
             expiry_date: ''
           });
+          setPaymentSearchTerm('');
           setIsEditing(false);
           setEditingId(null);
           fetchData();
@@ -1597,14 +1609,37 @@ export default function App() {
               </button>
             )}
             <button 
-              onClick={() => setShowAddMember(true)}
+              onClick={() => {
+                setNewMember({ name: '', phone: '', email: '', birth_date: '' });
+                setIsEditing(false);
+                setEditingId(null);
+                setShowAddMember(true);
+              }}
               className="flex items-center gap-2 bg-white border border-slate-200 px-4 py-2 rounded-xl hover:bg-slate-50 transition-all font-medium"
             >
               <UserPlus size={18} />
               Nuevo Miembro
             </button>
             <button 
-              onClick={() => setShowAddPayment(true)}
+              onClick={() => {
+                setNewPayment({
+                  member_id: '' as any,
+                  amount: 0,
+                  discount_amount: 0,
+                  discount_type: 'none',
+                  payment_type: 'monthly',
+                  received_by: currentRole || '',
+                  months: 1,
+                  notes: '',
+                  start_date: new Date().toISOString().split('T')[0],
+                  expiry_date: ''
+                });
+                setPaymentSearchTerm('');
+                setSelectedMember(null);
+                setIsEditing(false);
+                setEditingId(null);
+                setShowAddPayment(true);
+              }}
               className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-xl hover:bg-indigo-700 transition-all font-medium shadow-sm"
             >
               <Plus size={18} />
@@ -2104,8 +2139,33 @@ export default function App() {
                     <option key={u.username} value={u.username}>{u.username}</option>
                   ))}
                 </select>
-                {currentRole === 'Leslie' && (
+                {true && (
                   <div className="flex gap-2">
+                    <button 
+                      onClick={() => {
+                        setNewPayment({
+                          member_id: '' as any,
+                          amount: 0,
+                          discount_amount: 0,
+                          discount_type: 'none',
+                          payment_type: 'monthly',
+                          received_by: currentRole || '',
+                          months: 1,
+                          notes: '',
+                          start_date: new Date().toISOString().split('T')[0],
+                          expiry_date: ''
+                        });
+                        setPaymentSearchTerm('');
+                        setSelectedMember(null);
+                        setIsEditing(false);
+                        setEditingId(null);
+                        setShowAddPayment(true);
+                      }}
+                      className="flex items-center gap-2 text-xs bg-indigo-600 text-white px-4 py-2 rounded-xl hover:bg-indigo-700 transition-all font-bold shadow-md shadow-indigo-100"
+                    >
+                      <Plus size={14} />
+                      Nuevo Pago
+                    </button>
                     <button 
                       onClick={() => exportPaymentsToExcel(filteredPayments)}
                       className="flex items-center gap-2 text-xs bg-emerald-50 text-emerald-700 border border-emerald-100 px-4 py-2 rounded-xl hover:bg-emerald-100 transition-all font-bold shadow-sm"
@@ -2291,8 +2351,8 @@ export default function App() {
 
         {activeTab === 'expenses' && (currentRole === 'Leslie' || currentRole === 'Jorge') && (
           <div className="space-y-4">
-            <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-4 flex flex-col md:flex-row gap-4">
-              <div className="flex flex-wrap gap-2">
+            <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-4 flex flex-col md:flex-row gap-4 items-center">
+              <div className="flex flex-wrap gap-2 flex-1">
                 <input 
                   type="month" 
                   className="px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition-all text-sm"
@@ -2325,18 +2385,27 @@ export default function App() {
                     <option key={u.username} value={u.username}>{u.username}</option>
                   ))}
                 </select>
-                {currentRole === 'Leslie' && (
-                  <div className="flex gap-2">
-                    <button 
-                      onClick={() => exportToXML(filteredExpenses, 'gastos_kinetix', 'Gastos', 'Gasto')}
-                      className="flex items-center gap-2 text-xs bg-indigo-600 text-white px-4 py-2 rounded-xl hover:bg-indigo-700 transition-all font-bold shadow-sm"
-                      title="Exportar a XML"
-                    >
-                      <FileText size={14} />
-                      XML
-                    </button>
-                  </div>
-                )}
+              </div>
+              <div className="flex gap-2 w-full md:w-auto">
+                <button 
+                  onClick={() => {
+                    setNewExpense({ description: '', amount: 0, category: 'other', created_by: currentRole || '' });
+                    setIsEditing(false);
+                    setEditingId(null);
+                    setShowAddExpense(true);
+                  }}
+                  className="flex-1 md:flex-none flex items-center justify-center gap-2 bg-rose-600 text-white px-6 py-2.5 rounded-xl hover:bg-rose-700 transition-all font-bold text-sm shadow-md shadow-rose-100"
+                >
+                  <Plus size={18} />
+                  Nuevo Gasto
+                </button>
+                <button 
+                  onClick={exportExpensesToExcel}
+                  className="flex-1 md:flex-none flex items-center justify-center gap-2 bg-emerald-50 text-emerald-700 border border-emerald-100 px-6 py-2.5 rounded-xl hover:bg-emerald-100 transition-all font-bold text-sm"
+                >
+                  <ShoppingBag size={18} />
+                  Excel
+                </button>
               </div>
             </div>
 
@@ -2347,18 +2416,24 @@ export default function App() {
                   No hay gastos registrados
                 </div>
               ) : (
-                filteredExpenses.map(e => (
-                  <div key={e.id} className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm space-y-4">
+                filteredExpenses.map((e, idx) => (
+                  <div key={e.id} className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm space-y-4 relative overflow-hidden">
+                    <div className="absolute top-0 left-0 w-1 h-full bg-rose-500 opacity-20"></div>
                     <div className="flex justify-between items-start">
-                      <div>
-                        <h4 className="font-bold text-slate-900">{e.description}</h4>
-                        <p className="text-xs text-slate-400">
-                          {(() => {
-                            if (!e.expense_date) return 'Fecha desconocida';
-                            const d = new Date(e.expense_date);
-                            return isNaN(d.getTime()) ? 'Fecha inválida' : d.toLocaleDateString();
-                          })()}
-                        </p>
+                      <div className="flex items-start gap-3">
+                        <div className="text-[10px] font-black text-slate-200 mt-1 font-mono">
+                          {(filteredExpenses.length - idx).toString().padStart(3, '0')}
+                        </div>
+                        <div>
+                          <h4 className="font-bold text-slate-900">{e.description}</h4>
+                          <p className="text-xs text-slate-400">
+                            {(() => {
+                              if (!e.expense_date) return 'Fecha desconocida';
+                              const d = new Date(e.expense_date);
+                              return isNaN(d.getTime()) ? 'Fecha inválida' : d.toLocaleDateString();
+                            })()}
+                          </p>
+                        </div>
                       </div>
                       <span className="px-2 py-1 bg-slate-100 text-slate-600 rounded-full text-[10px] font-bold uppercase tracking-wider">
                         {e.category}
@@ -2373,18 +2448,18 @@ export default function App() {
                     </div>
                     <div className="flex gap-2 pt-2">
                       <button 
-                        onClick={() => handleEditExpense(e)}
-                        className="flex-1 bg-slate-50 text-slate-600 py-2 rounded-xl font-bold text-xs flex items-center justify-center gap-2"
+                         onClick={() => handleEditExpense(e)}
+                         className="flex-1 bg-slate-50 text-slate-600 py-3 rounded-xl font-bold text-xs flex items-center justify-center gap-2 border border-slate-200"
                       >
-                        <Edit size={14} />
-                        Editar
+                         <Edit size={14} />
+                         Editar
                       </button>
                       <button 
-                        onClick={() => handleDeleteExpense(e.id)}
-                        className="flex-1 bg-rose-50 text-rose-600 py-2 rounded-xl font-bold text-xs flex items-center justify-center gap-2"
+                         onClick={() => handleDeleteExpense(e.id)}
+                         className="flex-1 bg-rose-50 text-rose-600 py-3 rounded-xl font-bold text-xs flex items-center justify-center gap-2 border border-rose-100"
                       >
-                        <Trash2 size={14} />
-                        Eliminar
+                         <Trash2 size={14} />
+                         Eliminar
                       </button>
                     </div>
                   </div>
@@ -2395,8 +2470,9 @@ export default function App() {
             <div className="hidden lg:block bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
             <div className="overflow-x-auto">
               <table className="w-full text-left">
-                <thead className="bg-slate-50 text-slate-400 text-xs uppercase tracking-wider">
+                <thead className="bg-slate-50 text-slate-400 text-[10px] uppercase tracking-wider">
                   <tr>
+                    <th className="px-6 py-3 font-bold w-12 text-center">#</th>
                     <th className="px-6 py-3 font-semibold">Descripción</th>
                     <th className="px-6 py-3 font-semibold">Categoría</th>
                     <th className="px-6 py-3 font-semibold">Monto</th>
@@ -2406,43 +2482,54 @@ export default function App() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50">
-                  {filteredExpenses.map(e => (
-                    <tr key={e.id} className="hover:bg-slate-50 transition-all">
-                      <td className="px-6 py-4 font-medium">{e.description}</td>
-                      <td className="px-6 py-4">
-                        <span className="px-2 py-1 bg-slate-100 text-slate-600 rounded-full text-xs font-medium uppercase tracking-wider">
-                          {e.category}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 font-mono text-sm font-bold text-rose-600">-${(e.amount || 0).toFixed(2)}</td>
-                      <td className="px-6 py-4 text-sm text-slate-600">{e.created_by}</td>
-                      <td className="px-6 py-4 text-slate-500 text-sm">
-                        {(() => {
-                          if (!e.expense_date) return 'N/A';
-                          const d = new Date(e.expense_date);
-                          return isNaN(d.getTime()) ? 'N/A' : d.toLocaleDateString();
-                        })()}
-                      </td>
-                      <td className="px-6 py-4 text-right">
-                        <div className="flex gap-2 justify-end">
-                          <button 
-                            onClick={() => handleEditExpense(e)}
-                            className="text-slate-400 hover:text-slate-600 p-2 rounded-lg hover:bg-slate-50 transition-all"
-                            title="Editar Gasto"
-                          >
-                            <Edit size={16} />
-                          </button>
-                          <button 
-                            onClick={() => handleDeleteExpense(e.id)}
-                            className="text-rose-400 hover:text-rose-600 p-2 rounded-lg hover:bg-rose-50 transition-all"
-                            title="Eliminar Gasto"
-                          >
-                            <Trash2 size={16} />
-                          </button>
-                        </div>
+                  {filteredExpenses.length === 0 ? (
+                    <tr>
+                      <td colSpan={7} className="px-6 py-12 text-center text-slate-400 font-medium">
+                        No se encontraron gastos con los filtros aplicados
                       </td>
                     </tr>
-                  ))}
+                  ) : (
+                    filteredExpenses.map((e, idx) => (
+                      <tr key={e.id} className="hover:bg-slate-50 transition-all">
+                        <td className="px-6 py-4 text-[10px] font-mono font-bold text-slate-300 text-center">
+                          {(filteredExpenses.length - idx).toString().padStart(3, '0')}
+                        </td>
+                        <td className="px-6 py-4 font-medium">{e.description}</td>
+                        <td className="px-6 py-4">
+                          <span className="px-2 py-1 bg-slate-100 text-slate-600 rounded-full text-xs font-medium uppercase tracking-wider">
+                            {e.category}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 font-mono text-sm font-bold text-rose-600">-${(e.amount || 0).toFixed(2)}</td>
+                        <td className="px-6 py-4 text-sm text-slate-600">{e.created_by}</td>
+                        <td className="px-6 py-4 text-slate-500 text-sm">
+                          {(() => {
+                            if (!e.expense_date) return 'N/A';
+                            const d = new Date(e.expense_date);
+                            return isNaN(d.getTime()) ? 'N/A' : d.toLocaleDateString();
+                          })()}
+                        </td>
+                        <td className="px-6 py-4 text-right">
+                          <div className="flex gap-2 justify-end">
+                            <button 
+                              onClick={() => handleEditExpense(e)}
+                              className="text-slate-400 hover:text-slate-600 p-2 rounded-lg hover:bg-slate-50 transition-all"
+                              title="Editar Gasto"
+                            >
+                              <Edit size={16} />
+                            </button>
+                            <button 
+                              onClick={() => handleDeleteExpense(e.id)}
+                              className="text-rose-400 hover:text-rose-600 p-2 rounded-lg hover:bg-rose-50 transition-all"
+                              title="Eliminar Gasto"
+                            >
+                              <Trash2 size={16} />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))
+                  )}
                 </tbody>
               </table>
             </div>
@@ -3245,11 +3332,15 @@ export default function App() {
                   </div>
                     <select 
                       required
-                      className={`w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 outline-none ${members.length === 0 ? 'opacity-50 pointer-events-none' : ''}`}
+                      className={`w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 outline-none text-sm font-medium ${members.length === 0 ? 'opacity-50 pointer-events-none' : ''}`}
                       value={newPayment.member_id}
                       onChange={e => {
                         const val = e.target.value;
-                        if (!val) return;
+                        if (val === "") {
+                          setNewPayment({...newPayment, member_id: '' as any});
+                          setSelectedMember(null);
+                          return;
+                        }
                         const id = val;
                         const member = members.find(m => String(m.id) === String(id));
                         const suggestedStart = member?.last_expiry && new Date(member.last_expiry) > new Date()
@@ -3259,7 +3350,7 @@ export default function App() {
                         setSelectedMember(member || null);
                       }}
                     >
-                      <option value="">{members.length === 0 ? 'Sin miembros registrados' : 'Seleccionar miembro...'}</option>
+                      <option value="">{members.length === 0 ? 'Cargando miembros...' : '— Seleccionar Miembro —'}</option>
                       {members
                         .filter(m => {
                           const s = paymentSearchTerm.toLowerCase();
