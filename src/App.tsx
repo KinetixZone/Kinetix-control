@@ -678,9 +678,8 @@ export default function App() {
     XLSX.writeFile(wb, `${fileName}_${new Date().toISOString().split('T')[0]}.xlsx`);
   };
 
-  const exportMembersToExcel = (all: boolean = false) => {
-    const list = all ? members : filteredMembers;
-    const dataToExport = list.map(m => ({
+  const exportMembersToExcel = () => {
+    const dataToExport = filteredMembers.map(m => ({
       Nombre: m.name,
       Telefono: m.phone || '-',
       Email: m.email || '-',
@@ -688,34 +687,19 @@ export default function App() {
       Estado: m.last_expiry ? (isExpired(m.last_expiry) ? 'Vencido' : 'Activo') : 'Sin Pagos',
       Vencimiento: m.last_expiry ? new Date(m.last_expiry).toLocaleDateString() : '-'
     }));
-    handleExportExcel(dataToExport, all ? 'todos_los_miembros_kinetix' : 'miembros_kinetix_filtrados');
+    handleExportExcel(dataToExport, 'miembros_kinetix');
   };
 
-  const exportPaymentsToExcel = (all: boolean = false) => {
-    const list = all ? payments : filteredPayments;
-    const dataToExport = list.map(p => ({
+  const exportPaymentsToExcel = (paymentsList: Payment[]) => {
+    const dataToExport = paymentsList.map(p => ({
       Miembro: p.member_name,
       Monto: p.amount,
       Tipo: p.payment_type === 'monthly' ? 'Mensualidad' : 'Visita',
       Fecha: p.payment_date ? new Date(p.payment_date).toLocaleDateString() : '-',
       Notas: p.notes || '-',
-      'Recibido por': p.received_by,
-      'Meses Pagados': p.months || 1,
-      'Fecha Vencimiento': p.expiry_date ? new Date(p.expiry_date).toLocaleDateString() : '-'
+      'Recibido por': p.received_by
     }));
-    handleExportExcel(dataToExport, all ? 'historial_completo_pagos_kinetix' : 'pagos_kinetix_filtrados');
-  };
-
-  const exportExpensesToExcel = (all: boolean = false) => {
-    const list = all ? expenses : filteredExpenses;
-    const dataToExport = list.map(e => ({
-      Descripcion: e.description,
-      Monto: e.amount,
-      Categoria: e.category,
-      Fecha: e.date ? new Date(e.date).toLocaleDateString() : '-',
-      'Registrado por': e.created_by
-    }));
-    handleExportExcel(dataToExport, all ? 'todos_los_gastos_kinetix' : 'gastos_kinetix_filtrados');
+    handleExportExcel(dataToExport, 'pagos_kinetix');
   };
 
   const exportToXML = (data: any[], filename: string, rootName: string, itemName: string) => {
@@ -1912,22 +1896,13 @@ export default function App() {
                   onChange={(e) => setSearchTerm(e.target.value)}
                 />
               </div>
-              <div className="flex flex-wrap gap-2">
-                <button 
-                  onClick={() => exportMembersToExcel(false)}
-                  className="flex items-center gap-2 bg-emerald-50 text-emerald-700 px-4 py-2 rounded-xl hover:bg-emerald-100 transition-all font-bold text-xs border border-emerald-100 whitespace-nowrap"
-                >
-                  <ShoppingBag size={14} />
-                  Excel (Vista)
-                </button>
-                <button 
-                  onClick={() => exportMembersToExcel(true)}
-                  className="flex items-center gap-2 bg-slate-900 text-white px-4 py-2 rounded-xl hover:bg-slate-800 transition-all font-bold text-xs whitespace-nowrap"
-                >
-                  <Download size={14} />
-                  Exportar Todo
-                </button>
-              </div>
+              <button 
+                onClick={exportMembersToExcel}
+                className="flex items-center gap-2 bg-emerald-50 text-emerald-700 px-6 py-3 rounded-xl hover:bg-emerald-100 transition-all font-bold text-sm border border-emerald-100 whitespace-nowrap"
+              >
+                <ShoppingBag size={18} />
+                Excel (Filtrados)
+              </button>
             </div>
 
             {/* Mobile Cards View */}
@@ -2129,23 +2104,15 @@ export default function App() {
                     <option key={u.username} value={u.username}>{u.username}</option>
                   ))}
                 </select>
-                {(currentRole === 'Leslie' || currentRole === 'Jorge') && (
-                  <div className="flex flex-wrap gap-2">
+                {currentRole === 'Leslie' && (
+                  <div className="flex gap-2">
                     <button 
-                      onClick={() => exportPaymentsToExcel(false)}
+                      onClick={() => exportPaymentsToExcel(filteredPayments)}
                       className="flex items-center gap-2 text-xs bg-emerald-50 text-emerald-700 border border-emerald-100 px-4 py-2 rounded-xl hover:bg-emerald-100 transition-all font-bold shadow-sm"
-                      title="Exportar vista actual"
+                      title="Exportar a Excel"
                     >
                       <ShoppingBag size={14} />
-                      Excel (Mes)
-                    </button>
-                    <button 
-                      onClick={() => exportPaymentsToExcel(true)}
-                      className="flex items-center gap-2 text-xs bg-slate-900 text-white px-4 py-2 rounded-xl hover:bg-slate-800 transition-all font-bold shadow-sm"
-                      title="Exportar todo el historial"
-                    >
-                      <Download size={14} />
-                      Histórico
+                      Excel
                     </button>
                     <button 
                       onClick={() => exportPaymentsToCSV(filteredPayments)}
@@ -2154,6 +2121,14 @@ export default function App() {
                     >
                       <DollarSign size={14} />
                       CSV
+                    </button>
+                    <button 
+                      onClick={() => exportToXML(filteredPayments, 'pagos_kinetix', 'Pagos', 'Pago')}
+                      className="flex items-center gap-2 text-xs bg-indigo-600 text-white px-4 py-2 rounded-xl hover:bg-indigo-700 transition-all font-bold shadow-sm"
+                      title="Exportar a XML"
+                    >
+                      <FileText size={14} />
+                      XML
                     </button>
                   </div>
                 )}
@@ -2341,24 +2316,8 @@ export default function App() {
                     <option key={u.username} value={u.username}>{u.username}</option>
                   ))}
                 </select>
-                {(currentRole === 'Leslie' || currentRole === 'Jorge') && (
-                  <div className="flex flex-wrap gap-2">
-                    <button 
-                      onClick={() => exportExpensesToExcel(false)}
-                      className="flex items-center gap-2 text-xs bg-emerald-50 text-emerald-700 border border-emerald-100 px-4 py-2 rounded-xl hover:bg-emerald-100 transition-all font-bold shadow-sm"
-                      title="Exportar vista actual"
-                    >
-                      <ShoppingBag size={14} />
-                      Excel (Mes)
-                    </button>
-                    <button 
-                      onClick={() => exportExpensesToExcel(true)}
-                      className="flex items-center gap-2 text-xs bg-slate-900 text-white px-4 py-2 rounded-xl hover:bg-slate-800 transition-all font-bold shadow-sm"
-                      title="Exportar todo el historial"
-                    >
-                      <Download size={14} />
-                      Histórico
-                    </button>
+                {currentRole === 'Leslie' && (
+                  <div className="flex gap-2">
                     <button 
                       onClick={() => exportToXML(filteredExpenses, 'gastos_kinetix', 'Gastos', 'Gasto')}
                       className="flex items-center gap-2 text-xs bg-indigo-600 text-white px-4 py-2 rounded-xl hover:bg-indigo-700 transition-all font-bold shadow-sm"
