@@ -95,7 +95,7 @@ export default function App() {
   const [selectedUserForPin, setSelectedUserForPin] = useState<string | null>(null);
   const [paymentAlerts, setPaymentAlerts] = useState<any[]>([]);
   const [birthdayAlerts, setBirthdayAlerts] = useState<any[]>([]);
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'members' | 'payments' | 'expenses' | 'analytics' | 'attendance' | 'inventory' | 'users' | 'sales'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'members' | 'payments' | 'expenses' | 'analytics' | 'attendance' | 'inventory' | 'users' | 'sales' | 'personalized'>('dashboard');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [showAddMember, setShowAddMember] = useState(false);
   const [showAddPayment, setShowAddPayment] = useState(false);
@@ -130,7 +130,7 @@ export default function App() {
   const [errorMsg, setErrorMsg] = useState('');
 
   // Form states
-  const [newMember, setNewMember] = useState({ name: '', phone: '', email: '', birth_date: '' });
+  const [newMember, setNewMember] = useState({ name: '', phone: '', email: '', birth_date: '', service_type: 'gym' as 'gym' | 'personalized' | 'nutrition' });
   const [newPayment, setNewPayment] = useState({
     member_id: '' as any,
     amount: 500,
@@ -141,7 +141,8 @@ export default function App() {
     months: 1,
     notes: '',
     start_date: new Date().toISOString().split('T')[0],
-    expiry_date: ''
+    expiry_date: '',
+    category: 'gym' as 'gym' | 'personalized' | 'nutrition'
   });
   const [newExpense, setNewExpense] = useState({
     description: '',
@@ -306,6 +307,23 @@ export default function App() {
       filteredExpenses: validExpenses
     };
   }, [payments, sales, expenses, analyticsMonthFilter, analyticsYearFilter]);
+
+  const personalizedStats = useMemo(() => {
+    const pPayments = (payments || []).filter(p => p.category === 'personalized');
+    const pExpenses = (expenses || []).filter(e => e.category === 'personalized');
+    
+    const income = pPayments.reduce((acc, curr) => acc + (Number(curr.amount) || 0), 0);
+    const cost = pExpenses.reduce((acc, curr) => acc + (Number(curr.amount) || 0), 0);
+
+    return {
+      income,
+      expenses: cost,
+      profit: income - cost,
+      payments: pPayments,
+      expensesList: pExpenses,
+      memberCount: members.filter(m => m.service_type === 'personalized').length
+    };
+  }, [payments, expenses, members]);
 
   const fetchData = async () => {
     setIsLoading(true);
@@ -797,7 +815,8 @@ export default function App() {
             name: newMember.name.trim(),
             phone: newMember.phone?.trim() || null,
             email: newMember.email?.trim() || null,
-            birth_date: newMember.birth_date || null
+            birth_date: newMember.birth_date || null,
+            service_type: newMember.service_type || 'gym'
           };
 
           let result;
@@ -828,7 +847,7 @@ export default function App() {
             return;
           }
 
-          setNewMember({ name: '', phone: '', email: '', birth_date: '' });
+          setNewMember({ name: '', phone: '', email: '', birth_date: '', service_type: 'gym' });
           setShowAddMember(false);
           setIsEditing(false);
           setEditingId(null);
@@ -853,7 +872,8 @@ export default function App() {
       name: member.name,
       phone: member.phone || '',
       email: member.email || '',
-      birth_date: member.birth_date || ''
+      birth_date: member.birth_date || '',
+      service_type: member.service_type || 'gym'
     });
     setIsEditing(true);
     setEditingId(member.id);
@@ -944,7 +964,8 @@ export default function App() {
                 received_by: newPayment.received_by || currentRole,
                 expiry_date,
                 payment_date: finalPaymentDate,
-                notes: encryptData(newPayment.notes || '')
+                notes: encryptData(newPayment.notes || ''),
+                category: newPayment.category || 'gym'
               })
               .eq('id', editingId);
             if (error) throw error;
@@ -961,7 +982,8 @@ export default function App() {
                 received_by: newPayment.received_by || currentRole,
                 expiry_date,
                 payment_date: finalPaymentDate,
-                notes: encryptData(newPayment.notes || '')
+                notes: encryptData(newPayment.notes || ''),
+                category: newPayment.category || 'gym'
               }]);
             if (error) throw error;
             addToast('Pago registrado correctamente');
@@ -979,7 +1001,8 @@ export default function App() {
             months: 1,
             notes: '',
             start_date: new Date().toISOString().split('T')[0],
-            expiry_date: ''
+            expiry_date: '',
+            category: 'gym'
           });
           setPaymentSearchTerm('');
           setIsEditing(false);
@@ -1298,7 +1321,7 @@ export default function App() {
 
     // Only apply memberMonthFilter as a general filter if NOT in 'new' tab (where it's already used) or 'all' tab
     // Actually, let's make memberMonthFilter match created_at generally unless specifically in a tab that specifies its own rules
-    const matchesMonth = (memberFilterTab !== 'new' && memberMonthFilter) 
+    const matchesMonth = (memberMonthFilter && (memberFilterTab === 'all' || memberFilterTab === 'new'))
       ? m.created_at?.startsWith(memberMonthFilter) || false 
       : true;
 
@@ -1306,14 +1329,14 @@ export default function App() {
   });
 
   const memberStats = useMemo(() => {
-    const currentMonth = new Date().toISOString().slice(0, 7);
+    const monthToMatch = memberMonthFilter || new Date().toISOString().slice(0, 7);
     return {
       all: members.length,
-      new: members.filter(m => m.created_at?.startsWith(currentMonth)).length,
+      new: members.filter(m => m.created_at?.startsWith(monthToMatch)).length,
       active: members.filter(m => m.last_expiry && !isExpired(m.last_expiry)).length,
       expired: members.filter(m => isExpired(m.last_expiry || null)).length
     };
-  }, [members]);
+  }, [members, memberMonthFilter]);
 
   const getStatusColor = (expiry: string | null) => {
     if (!expiry) return 'bg-gray-100 text-gray-500';
@@ -1536,6 +1559,14 @@ export default function App() {
             <Fingerprint size={20} />
             <span className="font-medium">Asistencia</span>
           </button>
+
+          <button 
+            onClick={() => { setActiveTab('personalized'); setIsMobileMenuOpen(false); }}
+            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'personalized' ? 'bg-amber-50 text-amber-600' : 'text-slate-500 hover:bg-slate-50'}`}
+          >
+            <ShieldCheck size={20} className={activeTab === 'personalized' ? 'text-amber-500' : ''} />
+            <span className="font-medium">Personalizados</span>
+          </button>
           <button 
             onClick={() => { setActiveTab('sales'); setIsMobileMenuOpen(false); }}
             className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'sales' ? 'bg-blue-50 text-blue-600' : 'text-slate-500 hover:bg-slate-50'}`}
@@ -1616,6 +1647,7 @@ export default function App() {
               {activeTab === 'sales' && 'Ventas'}
               {activeTab === 'inventory' && 'Inventario'}
               {activeTab === 'users' && 'Personal'}
+              {activeTab === 'personalized' && 'Entrenamientos Personalizados'}
             </h2>
             <div className="h-6 mt-1 flex items-center gap-2">
               <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
@@ -1642,7 +1674,7 @@ export default function App() {
             )}
             <button 
               onClick={() => {
-                setNewMember({ name: '', phone: '', email: '', birth_date: '' });
+                setNewMember({ name: '', phone: '', email: '', birth_date: '', service_type: 'gym' });
                 setIsEditing(false);
                 setEditingId(null);
                 setShowAddMember(true);
@@ -1664,7 +1696,8 @@ export default function App() {
                   months: 1,
                   notes: '',
                   start_date: new Date().toISOString().split('T')[0],
-                  expiry_date: ''
+                  expiry_date: '',
+                  category: 'gym'
                 });
                 setPaymentSearchTerm('');
                 setSelectedMember(null);
@@ -2230,7 +2263,8 @@ export default function App() {
                           months: 1,
                           notes: '',
                           start_date: new Date().toISOString().split('T')[0],
-                          expiry_date: ''
+                          expiry_date: '',
+                          category: 'gym'
                         });
                         setPaymentSearchTerm('');
                         setSelectedMember(null);
@@ -3281,6 +3315,149 @@ export default function App() {
             </div>
           </div>
         )}
+        {activeTab === 'personalized' && (
+          <div className="space-y-6 lg:space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
+            {/* Context Header */}
+            <div className="bg-gradient-to-br from-amber-500 to-orange-600 p-8 rounded-[2.5rem] text-white shadow-xl shadow-amber-500/20 relative overflow-hidden">
+               <div className="absolute top-0 right-0 w-64 h-64 bg-white/10 rounded-full -translate-y-32 translate-x-32 blur-3xl" />
+               <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
+                <div>
+                  <h3 className="text-3xl font-black mb-2 flex items-center gap-3">
+                    <ShieldCheck size={32} />
+                    Entrenamientos de Jorge
+                  </h3>
+                  <p className="text-amber-50/80 font-medium max-w-md">
+                    Gestiona los alumnos personalizados y la contabilidad exclusiva de este servicio.
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-3">
+                   <button 
+                    onClick={() => {
+                        setNewMember({ ...newMember, service_type: 'personalized' });
+                        setShowAddMember(true);
+                    }}
+                    className="bg-white/20 hover:bg-white/30 backdrop-blur-md px-6 py-3 rounded-2xl font-bold transition-all flex items-center gap-2 border border-white/20"
+                   >
+                     <Plus size={20} />
+                     Nuevo Alumno
+                   </button>
+                   <button 
+                    onClick={() => {
+                        setNewPayment({ ...newPayment, category: 'personalized' });
+                        setShowAddPayment(true);
+                    }}
+                    className="bg-white text-amber-600 px-6 py-3 rounded-2xl font-bold transition-all shadow-lg hover:bg-amber-50 flex items-center gap-2"
+                   >
+                     <Receipt size={20} />
+                     Registrar Pago
+                   </button>
+                </div>
+               </div>
+            </div>
+
+            {/* Stats Cards */}
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+               <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm">
+                  <div className="w-12 h-12 bg-blue-50 text-blue-600 rounded-2xl flex items-center justify-center mb-4">
+                    <Users size={24} />
+                  </div>
+                  <p className="text-sm font-bold text-slate-400 uppercase tracking-wider">Alumnos Activos</p>
+                  <h4 className="text-3xl font-black text-slate-900 mt-1">{personalizedStats.memberCount}</h4>
+               </div>
+               <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm">
+                  <div className="w-12 h-12 bg-emerald-50 text-emerald-600 rounded-2xl flex items-center justify-center mb-4">
+                    <TrendingUp size={24} />
+                  </div>
+                  <p className="text-sm font-bold text-slate-400 uppercase tracking-wider">Ingresos Totales</p>
+                  <h4 className="text-3xl font-black text-slate-900 mt-1">${personalizedStats.income.toFixed(2)}</h4>
+               </div>
+               <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm">
+                  <div className="w-12 h-12 bg-rose-50 text-rose-600 rounded-2xl flex items-center justify-center mb-4">
+                    <TrendingDown size={24} />
+                  </div>
+                  <p className="text-sm font-bold text-slate-400 uppercase tracking-wider">Gastos</p>
+                  <h4 className="text-3xl font-black text-slate-900 mt-1">${personalizedStats.expenses.toFixed(2)}</h4>
+               </div>
+               <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm">
+                  <div className="w-12 h-12 bg-amber-50 text-amber-600 rounded-2xl flex items-center justify-center mb-4">
+                    <Wallet size={24} />
+                  </div>
+                  <p className="text-sm font-bold text-slate-400 uppercase tracking-wider">Utilidad</p>
+                  <h4 className="text-3xl font-black text-slate-900 mt-1">${personalizedStats.profit.toFixed(2)}</h4>
+               </div>
+            </div>
+
+            {/* List Sections */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+               {/* Last Payments */}
+               <div className="bg-white rounded-[2rem] border border-slate-100 shadow-sm overflow-hidden flex flex-col">
+                  <div className="p-6 border-b border-slate-50 flex items-center justify-between">
+                    <h3 className="text-xl font-black text-slate-900">Últimos Pagos Personalizados</h3>
+                    <Receipt className="text-slate-400" size={20} />
+                  </div>
+                  <div className="overflow-y-auto max-h-[400px]">
+                    <div className="divide-y divide-slate-50">
+                      {personalizedStats.payments.length === 0 ? (
+                        <div className="p-12 text-center text-slate-400 italic">No hay pagos registrados aún.</div>
+                      ) : (
+                        personalizedStats.payments.slice(0, 10).map(p => (
+                          <div key={p.id} className="p-4 hover:bg-slate-50 flex items-center justify-between transition-all">
+                            <div className="flex items-center gap-4">
+                              <div className="w-10 h-10 bg-emerald-50 text-emerald-600 rounded-xl flex items-center justify-center font-bold">
+                                $
+                              </div>
+                              <div>
+                                <p className="font-bold text-slate-900">{members.find(m => m.id === p.member_id)?.name || 'Miembro'}</p>
+                                <p className="text-xs text-slate-500">{new Date(p.payment_date).toLocaleDateString()}</p>
+                              </div>
+                            </div>
+                            <div className="text-right">
+                              <p className="font-black text-slate-900">${(Number(p.amount) || 0).toFixed(2)}</p>
+                              <p className="text-[10px] text-slate-400 uppercase font-black tracking-widest">{p.payment_type}</p>
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+               </div>
+
+               {/* Alumnos List */}
+               <div className="bg-white rounded-[2rem] border border-slate-100 shadow-sm overflow-hidden flex flex-col">
+                  <div className="p-6 border-b border-slate-50 flex items-center justify-between">
+                    <h3 className="text-xl font-black text-slate-900">Alumnos en Personalizado</h3>
+                    <Users className="text-slate-400" size={20} />
+                  </div>
+                  <div className="overflow-y-auto max-h-[400px]">
+                    <div className="divide-y divide-slate-50">
+                      {members.filter(m => m.service_type === 'personalized').length === 0 ? (
+                        <div className="p-12 text-center text-slate-400 italic">No hay alumnos registrados.</div>
+                      ) : (
+                        members.filter(m => m.service_type === 'personalized').map(m => (
+                          <div key={m.id} className="p-4 hover:bg-slate-50 flex items-center justify-between transition-all">
+                            <div className="flex items-center gap-4">
+                              <div className="w-10 h-10 bg-blue-50 text-blue-600 rounded-xl flex items-center justify-center font-bold">
+                                {m.name?.charAt(0)}
+                              </div>
+                              <div>
+                                <p className="font-bold text-slate-900">{m.name}</p>
+                                <p className="text-xs text-slate-500">{m.phone || 'Sin teléfono'}</p>
+                              </div>
+                            </div>
+                            <div>
+                                <span className="px-2 py-1 bg-amber-50 text-amber-600 rounded-lg text-[10px] font-black uppercase tracking-tighter">
+                                    Vence: {m.last_expiry ? new Date(m.last_expiry).toLocaleDateString() : 'N/A'}
+                                </span>
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+               </div>
+            </div>
+          </div>
+        )}
       </main>
 
       {/* Modals */}
@@ -3339,6 +3516,18 @@ export default function App() {
                     value={newMember.email}
                     onChange={e => setNewMember({...newMember, email: e.target.value})}
                   />
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">Tipo de Servicio</label>
+                  <select 
+                    className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 outline-none"
+                    value={newMember.service_type}
+                    onChange={e => setNewMember({...newMember, service_type: e.target.value as 'gym' | 'personalized'})}
+                  >
+                    <option value="gym">Solo Gimnasio</option>
+                    <option value="personalized">Entrenamiento Personalizado</option>
+                    <option value="nutrition">Nutrición</option>
+                  </select>
                 </div>
                 {errorMsg && (
                   <div className="bg-rose-50 text-rose-600 p-3 rounded-xl text-sm flex items-center gap-2">
@@ -3596,6 +3785,20 @@ export default function App() {
                     value={newPayment.notes}
                     onChange={e => setNewPayment({...newPayment, notes: e.target.value})}
                   />
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1 font-bold text-emerald-600 underline">Categoría de Servicio</label>
+                  <select 
+                    required
+                    className="w-full px-4 py-2 bg-emerald-50 border border-emerald-200 rounded-xl focus:ring-2 focus:ring-emerald-500/20 outline-none font-bold text-emerald-900"
+                    value={newPayment.category}
+                    onChange={e => setNewPayment({...newPayment, category: e.target.value as 'gym' | 'personalized'})}
+                  >
+                    <option value="gym">Gimnasio</option>
+                    <option value="personalized">Entrenamiento Personalizado (Jorge)</option>
+                    <option value="nutrition">Nutrición</option>
+                  </select>
                 </div>
 
                 <div className="bg-indigo-50 p-4 rounded-2xl">
