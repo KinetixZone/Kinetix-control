@@ -119,10 +119,12 @@ export default function App() {
   const [expenseMonthFilter, setExpenseMonthFilter] = useState('');
   const [expenseUserFilter, setExpenseUserFilter] = useState('');
   const [expenseYearFilter, setExpenseYearFilter] = useState('');
+  const [memberMonthFilter, setMemberMonthFilter] = useState('');
   const [saleMonthFilter, setSaleMonthFilter] = useState('');
   const [saleYearFilter, setSaleYearFilter] = useState('');
   const [analyticsMonthFilter, setAnalyticsMonthFilter] = useState(new Date().toISOString().slice(0, 7)); // Default to current month
   const [analyticsYearFilter, setAnalyticsYearFilter] = useState(new Date().getFullYear().toString());
+  const [memberFilterTab, setMemberFilterTab] = useState<'all' | 'new' | 'active' | 'expired'>('all');
   const [selectedMember, setSelectedMember] = useState<Member | null>(null);
   const [currentRole, setCurrentRole] = useState<Role>('Leslie');
   const [errorMsg, setErrorMsg] = useState('');
@@ -1260,10 +1262,23 @@ export default function App() {
     }
   };
 
-  const filteredMembers = members.filter(m => 
-    (m.name?.toLowerCase() || '').includes(searchTerm.toLowerCase()) ||
-    (m.phone || '').includes(searchTerm)
-  );
+  const filteredMembers = members.filter(m => {
+    const matchesSearch = (m.name?.toLowerCase() || '').includes(searchTerm.toLowerCase()) ||
+                         (m.phone || '').includes(searchTerm);
+    const matchesMonth = memberMonthFilter ? m.created_at?.startsWith(memberMonthFilter) : true;
+    
+    let matchesTab = true;
+    if (memberFilterTab === 'new') matchesTab = m.created_at?.startsWith(new Date().toISOString().slice(0, 7)) || false;
+    if (memberFilterTab === 'active') matchesTab = m.last_expiry ? !isExpired(m.last_expiry) : false;
+    if (memberFilterTab === 'expired') matchesTab = m.last_expiry ? isExpired(m.last_expiry) : false;
+
+    return matchesSearch && matchesMonth && matchesTab;
+  });
+
+  const newMembersCount = useMemo(() => {
+    const currentMonth = memberMonthFilter || new Date().toISOString().slice(0, 7);
+    return members.filter(m => m.created_at?.startsWith(currentMonth)).length;
+  }, [members, memberMonthFilter]);
 
   const isExpired = (dateStr: string | null) => {
     if (!dateStr) return true;
@@ -1920,24 +1935,58 @@ export default function App() {
 
         {activeTab === 'members' && (
           <div className="space-y-4">
-            <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-4 flex flex-col md:flex-row gap-4 items-center">
+            <div className="flex flex-wrap gap-2 mb-2 p-1 bg-slate-100 rounded-2xl w-fit">
+              {[
+                { id: 'all', label: 'Todos', icon: Users },
+                { id: 'new', label: 'Nuevos (Mes)', icon: UserPlus },
+                { id: 'active', label: 'Activos', icon: ShieldCheck },
+                { id: 'expired', label: 'Vencidos', icon: AlertCircle }
+              ].map(tab => (
+                <button
+                  key={tab.id}
+                  onClick={() => setMemberFilterTab(tab.id as any)}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
+                    memberFilterTab === tab.id 
+                    ? 'bg-white text-indigo-600 shadow-sm' 
+                    : 'text-slate-500 hover:text-slate-700'
+                  }`}
+                >
+                  <tab.icon size={14} />
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+
+            <div className="bg-white rounded-3xl shadow-sm border border-slate-100 p-6 flex flex-col md:flex-row gap-6 items-center">
               <div className="relative flex-1 w-full">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
                 <input 
                   type="text" 
                   placeholder="Buscar por nombre o teléfono..." 
-                  className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all"
+                  className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all text-sm"
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                 />
               </div>
-              <button 
-                onClick={exportMembersToExcel}
-                className="flex items-center gap-2 bg-emerald-50 text-emerald-700 px-6 py-3 rounded-xl hover:bg-emerald-100 transition-all font-bold text-sm border border-emerald-100 whitespace-nowrap"
-              >
-                <ShoppingBag size={18} />
-                Excel (Filtrados)
-              </button>
+              <div className="flex flex-col sm:flex-row gap-4 w-full md:w-auto">
+                <div className="flex items-center gap-3 bg-indigo-50/50 p-2 pl-4 rounded-xl border border-indigo-100/50">
+                  <div className="text-[10px] font-black text-indigo-400 uppercase tracking-widest leading-none">Miembros<br/>Nuevos</div>
+                  <div className="text-2xl font-black text-indigo-600 font-mono pr-2">{newMembersCount}</div>
+                </div>
+                <input 
+                  type="month" 
+                  className="px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all text-sm"
+                  value={memberMonthFilter}
+                  onChange={(e) => setMemberMonthFilter(e.target.value)}
+                />
+                <button 
+                  onClick={exportMembersToExcel}
+                  className="flex items-center justify-center gap-2 bg-emerald-50 text-emerald-700 px-6 py-3 rounded-xl hover:bg-emerald-100 transition-all font-bold text-sm border border-emerald-100 whitespace-nowrap"
+                >
+                  <ShoppingBag size={18} />
+                  Excel
+                </button>
+              </div>
             </div>
 
             {/* Mobile Cards View */}
@@ -1950,14 +1999,20 @@ export default function App() {
                   <p className="text-slate-400 font-medium">No se encontraron miembros</p>
                 </div>
               ) : (
-                filteredMembers.map(m => {
+                filteredMembers.map((m, idx) => {
                   const isExp = isExpired(m.last_expiry);
                   return (
-                    <div key={m.id} className="bg-white p-5 rounded-3xl border border-slate-100 shadow-sm space-y-4 active:scale-[0.98] transition-transform">
+                    <div key={m.id} className="bg-white p-5 rounded-3xl border border-slate-100 shadow-sm space-y-4 active:scale-[0.98] transition-transform relative overflow-hidden">
+                      <div className="absolute top-0 left-0 w-1 h-full bg-indigo-500 opacity-10"></div>
                       <div className="flex justify-between items-start">
-                        <div>
-                          <h4 className="font-bold text-slate-900 text-lg">{m.name}</h4>
-                          <p className="text-xs text-slate-400 font-medium">{m.phone || 'Sin teléfono'}</p>
+                        <div className="flex gap-3">
+                          <div className="text-[10px] font-black text-slate-200 mt-1 font-mono">
+                            {(filteredMembers.length - idx).toString().padStart(3, '0')}
+                          </div>
+                          <div>
+                            <h4 className="font-bold text-slate-900 text-lg leading-tight">{m.name}</h4>
+                            <p className="text-xs text-slate-400 font-medium">{m.phone || 'Sin teléfono'}</p>
+                          </div>
                         </div>
                         <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${isExp ? 'bg-rose-50 text-rose-600' : 'bg-emerald-50 text-emerald-600'}`}>
                           {m.last_expiry ? (isExp ? 'Vencido' : 'Activo') : 'Nuevo'}
@@ -2013,22 +2068,26 @@ export default function App() {
             <div className="hidden lg:block bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
               <div className="overflow-x-auto">
                 <table className="w-full text-left">
-                  <thead className="bg-slate-50 text-slate-400 text-xs uppercase tracking-wider">
+                  <thead className="bg-slate-50 text-slate-400 text-[10px] uppercase tracking-wider">
                     <tr>
+                      <th className="px-6 py-3 font-bold w-12 text-center">#</th>
                       <th className="px-6 py-3 font-semibold">Nombre</th>
                       <th className="px-6 py-3 font-semibold">Contacto</th>
                       <th className="px-6 py-3 font-semibold">Cumpleaños</th>
                       <th className="px-6 py-3 font-semibold">Estado</th>
                       <th className="px-6 py-3 font-semibold">Vencimiento</th>
-                      <th className="px-6 py-3 font-semibold">Acciones</th>
+                      <th className="px-6 py-3 font-semibold text-right">Acciones</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-50">
-                    {filteredMembers.map(m => (
+                    {filteredMembers.map((m, idx) => (
                       <tr key={m.id} className="hover:bg-slate-50 transition-all">
+                        <td className="px-6 py-4 text-[10px] font-mono font-bold text-slate-300 text-center">
+                          {(filteredMembers.length - idx).toString().padStart(3, '0')}
+                        </td>
                         <td className="px-6 py-4">
-                          <div className="font-medium">{m.name}</div>
-                          <div className="text-xs text-slate-400">{m.email}</div>
+                          <div className="font-medium text-slate-900">{m.name}</div>
+                          <div className="text-[10px] text-slate-400 font-medium">{m.email || 'Sin correo registrado'}</div>
                         </td>
                         <td className="px-6 py-4 text-sm text-slate-600">{m.phone}</td>
                         <td className="px-6 py-4 text-sm text-slate-600">
