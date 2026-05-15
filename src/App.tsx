@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
+  Activity,
+  Dumbbell,
   Users, 
   CreditCard, 
   Plus, 
@@ -84,6 +86,21 @@ class ErrorBoundary extends React.Component<{children: React.ReactNode}, {hasErr
     return (this as any).props.children;
   }
 }
+
+const Logo = ({ size = 24, className = "" }: { size?: number, className?: string }) => (
+  <div className={`flex items-center gap-2 ${className}`}>
+    <div className="relative">
+      <div className="absolute -inset-1 bg-indigo-600 rounded-lg blur-sm opacity-20 animate-pulse"></div>
+      <div className="relative bg-gradient-to-br from-indigo-600 to-emerald-500 p-2 rounded-xl text-white shadow-lg shadow-indigo-100">
+        <Activity size={size} strokeWidth={3} />
+      </div>
+    </div>
+    <div className="flex flex-col -space-y-1">
+      <span className="text-xl font-black italic tracking-tighter text-slate-900 leading-none">KINETIX</span>
+      <span className="text-[8px] font-black uppercase tracking-[0.2em] text-emerald-600 leading-none pl-0.5">Functional Zone</span>
+    </div>
+  </div>
+);
 
 export default function App() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
@@ -1523,12 +1540,9 @@ export default function App() {
           animate={{ opacity: 1, y: 0 }}
           className="bg-white p-8 rounded-3xl shadow-xl border border-slate-100 w-full max-w-md"
         >
-          <div className="flex flex-col items-center mb-8">
-            <div className="w-16 h-16 bg-indigo-600 rounded-2xl flex items-center justify-center text-white mb-4 shadow-lg shadow-indigo-200">
-              <ShieldCheck size={32} />
-            </div>
-            <h1 className="text-2xl font-bold text-slate-900">Kinetix Functional Zone</h1>
-            <p className="text-slate-500 text-sm">Acceso Administrativo</p>
+          <div className="flex flex-col items-center mb-10 text-center">
+            <Logo size={40} className="mb-4 flex-col" />
+            <p className="text-slate-500 font-medium tracking-tight">Acceso Administrativo</p>
           </div>
 
           <form onSubmit={handleLogin} className="space-y-6">
@@ -1599,10 +1613,7 @@ export default function App() {
           onClick={() => { setActiveTab('dashboard'); setIsMobileMenuOpen(false); }}
           className="flex items-center gap-2 hover:opacity-80 transition-opacity"
         >
-          <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center text-white shadow-sm">
-            <ShieldCheck size={16} />
-          </div>
-          <span className="font-bold text-sm tracking-tight">Kinetix Zone</span>
+          <Logo size={18} />
         </button>
         <button 
           onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
@@ -1636,13 +1647,7 @@ export default function App() {
             onClick={() => { setActiveTab('dashboard'); setIsMobileMenuOpen(false); }}
             className="flex items-center gap-3 hover:opacity-80 transition-opacity"
           >
-            <div className="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center text-white shadow-lg shadow-blue-100">
-              <ShieldCheck size={20} />
-            </div>
-            <div className="text-left">
-              <h1 className="font-bold text-lg leading-tight text-slate-900">Kinetix</h1>
-              <p className="text-[10px] text-blue-600 uppercase tracking-wider font-black">Functional Zone</p>
-            </div>
+            <Logo size={24} />
           </button>
           <button className="lg:hidden" onClick={() => setIsMobileMenuOpen(false)}>
             <X size={20} className="text-slate-400" />
@@ -5037,7 +5042,7 @@ export default function App() {
         )}
 
         {showReceipt && (
-          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[70] flex items-center justify-center p-4 no-print">
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[70] flex items-center justify-center p-4">
             <motion.div 
               initial={{ opacity: 0, scale: 0.9, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
@@ -5059,10 +5064,12 @@ export default function App() {
 
               <div className="flex-1 overflow-y-auto custom-scrollbar">
                 <div id="receipt-modal-content" className="p-8 space-y-6 font-mono print-only-content">
-                  <div className="text-center space-y-1">
-                    <h2 className="text-xl font-black tracking-tighter text-slate-900">KINETIX FUNCTIONAL ZONE</h2>
-                    <p className="text-[10px] text-slate-500 uppercase tracking-widest text-center">Sucursal Matriz</p>
-                    <div className="w-12 h-0.5 bg-indigo-500 mx-auto mt-2 rounded-full opacity-30"></div>
+                  <div className="text-center space-y-4">
+                    <Logo className="justify-center" size={28} />
+                    <div className="space-y-1">
+                      <p className="text-[10px] text-slate-500 uppercase tracking-widest text-center">Sucursal Matriz</p>
+                      <div className="w-12 h-0.5 bg-indigo-500 mx-auto mt-2 rounded-full opacity-30"></div>
+                    </div>
                   </div>
 
                   <div className="space-y-4 pt-4 border-t border-dashed border-slate-200">
