@@ -1600,7 +1600,7 @@ export default function App() {
           </button>
         </div>
 
-        <div className="space-y-2 flex-1">
+        <div className="space-y-1.5 flex-1 overflow-y-auto custom-scrollbar -mr-2 pr-2 pb-10">
           <button 
             onClick={() => { setActiveTab('dashboard'); setIsMobileMenuOpen(false); }}
             className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all relative ${activeTab === 'dashboard' ? 'bg-blue-50 text-blue-600' : 'text-slate-500 hover:bg-slate-50'}`}
