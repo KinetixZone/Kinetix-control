@@ -48,6 +48,7 @@ export interface InventoryItem {
   id: number;
   name: string;
   price: number;
+  cost_price: number;
   stock: number;
   category: string;
 }
@@ -57,6 +58,7 @@ export interface Sale {
   item_id: number;
   quantity: number;
   total_price: number;
+  unit_cost: number;
   sale_date: string;
 }
 

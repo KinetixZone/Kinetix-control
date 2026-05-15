@@ -165,8 +165,8 @@ export default function App() {
     category: 'other',
     created_by: ''
   });
-  const [newInventory, setNewInventory] = useState({ name: '', price: 0, stock: 0, category: 'drinks' });
-  const [newSale, setNewSale] = useState({ item_id: 0, quantity: 1, total_price: 0 });
+  const [newInventory, setNewInventory] = useState({ name: '', price: 0, cost_price: 0, stock: 0, category: 'drinks' });
+  const [newSale, setNewSale] = useState({ item_id: 0, quantity: 1, total_price: 0, unit_cost: 0 });
 
   useEffect(() => {
     const savedUser = localStorage.getItem('kinetix_user');
@@ -668,7 +668,8 @@ export default function App() {
     setNewSale({
       item_id: sale.item_id,
       quantity: sale.quantity,
-      total_price: sale.total_price
+      total_price: sale.total_price,
+      unit_cost: sale.unit_cost || 0
     });
     setIsEditing(true);
     setEditingId(sale.id);
@@ -1218,7 +1219,7 @@ export default function App() {
 
           if (result.error) throw result.error;
 
-          setNewInventory({ name: '', price: 0, stock: 0, category: 'drinks' });
+          setNewInventory({ name: '', price: 0, cost_price: 0, stock: 0, category: 'drinks' });
           setShowAddInventory(false);
           setIsEditing(false);
           setEditingId(null);
@@ -1241,6 +1242,7 @@ export default function App() {
     setNewInventory({
       name: item.name,
       price: item.price,
+      cost_price: item.cost_price || 0,
       stock: item.stock,
       category: item.category
     });
@@ -1263,19 +1265,20 @@ export default function App() {
             const { data: oldSale } = await supabase.from('sales').select('*').eq('id', editingId).single();
             
             // 2. Update sale
+            const item = inventory.find(i => i.id === newSale.item_id);
             const { error: saleError } = await supabase
               .from('sales')
               .update({
                 item_id: newSale.item_id,
                 quantity: newSale.quantity,
-                total_price: newSale.total_price
+                total_price: newSale.total_price,
+                unit_cost: newSale.unit_cost || item?.cost_price || 0
               })
               .eq('id', editingId);
             if (saleError) throw saleError;
 
             // 3. Adjust stock
             if (oldSale && oldSale.quantity !== undefined) {
-              const item = inventory.find(i => i.id === newSale.item_id);
               if (item) {
                 const stockDiff = oldSale.quantity - newSale.quantity;
                 await supabase
@@ -1287,16 +1290,17 @@ export default function App() {
             addToast('Venta actualizada');
           } else {
             // 1. Register sale
+            const item = inventory.find(i => i.id === newSale.item_id);
             const { error: saleError } = await supabase
               .from('sales')
               .insert([{
                 ...newSale,
+                unit_cost: item?.cost_price || 0,
                 sale_date: new Date().toISOString()
               }]);
             if (saleError) throw saleError;
 
             // 2. Update stock
-            const item = inventory.find(i => i.id === newSale.item_id);
             if (item) {
               await supabase
                 .from('inventory')
@@ -1306,7 +1310,7 @@ export default function App() {
             addToast('Venta registrada con éxito');
           }
 
-          setNewSale({ item_id: 0, quantity: 1, total_price: 0 });
+          setNewSale({ item_id: 0, quantity: 1, total_price: 0, unit_cost: 0 });
           setShowMakeSale(false);
           setIsEditing(false);
           setEditingId(null);
@@ -3258,8 +3262,14 @@ export default function App() {
                       <span className="text-xl font-black text-emerald-600">${(s.total_price || 0).toFixed(2)}</span>
                     </div>
                     <div className="flex justify-between items-center p-3 bg-slate-50 rounded-xl">
-                      <span className="text-xs font-bold text-slate-400 uppercase">Cantidad</span>
-                      <span className="font-black text-slate-900">{s.quantity} unidades</span>
+                      <div>
+                        <span className="text-[10px] font-bold text-slate-400 uppercase block">Cantidad</span>
+                        <span className="font-black text-slate-900">{s.quantity} unidades</span>
+                      </div>
+                      <div className="text-right">
+                        <span className="text-[10px] font-bold text-emerald-600 uppercase block">Ganancia Real</span>
+                        <span className="font-black text-emerald-700 animate-pulse">+${(s.total_price - (s.unit_cost * s.quantity)).toFixed(2)}</span>
+                      </div>
                     </div>
                     <div className="flex gap-2 pt-2">
                       <button 
@@ -3298,6 +3308,7 @@ export default function App() {
                       <th className="px-6 py-3 font-semibold">Producto</th>
                       <th className="px-6 py-3 font-semibold">Cantidad</th>
                       <th className="px-6 py-3 font-semibold">Total</th>
+                      <th className="px-6 py-3 font-semibold">Ganancia</th>
                       <th className="px-6 py-3 font-semibold">Fecha</th>
                       <th className="px-6 py-3 font-semibold text-right">Acciones</th>
                     </tr>
@@ -3318,6 +3329,11 @@ export default function App() {
                           <td className="px-6 py-4 font-medium">{s.item_name}</td>
                           <td className="px-6 py-4 text-sm text-slate-600">{s.quantity}</td>
                           <td className="px-6 py-4 font-mono text-sm font-bold text-emerald-600">${(s.total_price || 0).toFixed(2)}</td>
+                          <td className="px-6 py-4">
+                            <span className="text-[10px] font-black text-emerald-600 bg-emerald-50 px-2 py-1 rounded-full">
+                              +${(s.total_price - ((s.unit_cost || 0) * s.quantity)).toFixed(2)}
+                            </span>
+                          </td>
                           <td className="px-6 py-4 text-sm text-slate-600">
                             {(() => {
                               if (!s.sale_date) return 'N/A';
@@ -3365,8 +3381,14 @@ export default function App() {
                 </div>
               </div>
               <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
-                <div className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Productos en Stock</div>
+                <div className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Ganancia Potencial</div>
                 <div className="text-3xl font-bold text-emerald-600">
+                  ${inventory.reduce((acc, curr) => acc + (((curr.price || 0) - (curr.cost_price || 0)) * (curr.stock || 0)), 0).toFixed(2)}
+                </div>
+              </div>
+              <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+                <div className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Productos en Stock</div>
+                <div className="text-3xl font-bold text-slate-900">
                   {inventory.reduce((acc, curr) => acc + curr.stock, 0)}
                 </div>
               </div>
@@ -3460,8 +3482,10 @@ export default function App() {
                     <tr>
                       <th className="px-6 py-3 font-semibold">Producto</th>
                       <th className="px-6 py-3 font-semibold">Categoría</th>
+                      <th className="px-6 py-3 font-semibold">Costo</th>
                       <th className="px-6 py-3 font-semibold">Precio</th>
                       <th className="px-6 py-3 font-semibold">Stock</th>
+                      <th className="px-6 py-3 font-semibold">Margen</th>
                       <th className="px-6 py-3 font-semibold">Acciones</th>
                     </tr>
                   </thead>
@@ -3481,11 +3505,15 @@ export default function App() {
                               {item.category}
                             </span>
                           </td>
+                          <td className="px-6 py-4 font-mono text-sm text-slate-600">${(item.cost_price || 0).toFixed(2)}</td>
                           <td className="px-6 py-4 font-mono text-sm font-bold text-blue-600">${(item.price || 0).toFixed(2)}</td>
                           <td className="px-6 py-4">
                             <span className={`font-bold ${item.stock < 5 ? 'text-rose-600' : 'text-slate-600'}`}>
-                              {item.stock} unidades
+                              {item.stock} uds
                             </span>
+                          </td>
+                          <td className="px-6 py-4 font-mono text-xs text-emerald-600 font-black">
+                            +${(item.price - (item.cost_price || 0)).toFixed(2)}
                           </td>
                           <td className="px-6 py-4">
                             <div className="flex gap-3">
@@ -4575,25 +4603,39 @@ export default function App() {
                     onChange={e => setNewInventory({...newInventory, name: e.target.value})}
                   />
                 </div>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <div>
-                    <label className="block text-sm font-semibold text-slate-700 mb-1">Precio ($)</label>
+                    <label className="block text-sm font-semibold text-slate-700 mb-1">Precio Compra ($)</label>
                     <input 
                       required
                       type="number" 
                       step="0.01"
                       className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500/20 outline-none font-mono"
-                      value={newInventory.price}
-                      onChange={e => setNewInventory({...newInventory, price: parseFloat(e.target.value)})}
+                      placeholder="Tu costo"
+                      value={newInventory.cost_price || ''}
+                      onChange={e => setNewInventory({...newInventory, cost_price: parseFloat(e.target.value)})}
                     />
+                    <p className="text-[10px] text-slate-400 mt-1 italic">Lo que te cuesta comprarlo</p>
                   </div>
                   <div>
-                    <label className="block text-sm font-semibold text-slate-700 mb-1">Stock Inicial</label>
+                    <label className="block text-sm font-semibold text-slate-700 mb-1">Precio Venta ($)</label>
+                    <input 
+                      required
+                      type="number" 
+                      step="0.01"
+                      className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500/20 outline-none font-mono"
+                      value={newInventory.price || ''}
+                      onChange={e => setNewInventory({...newInventory, price: parseFloat(e.target.value)})}
+                    />
+                    <p className="text-[10px] text-emerald-600 mt-1 italic">Ganancia: ${(newInventory.price - (newInventory.cost_price || 0)).toFixed(2)}</p>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-semibold text-slate-700 mb-1">Stock</label>
                     <input 
                       required
                       type="number" 
                       className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500/20 outline-none"
-                      value={newInventory.stock}
+                      value={newInventory.stock || ''}
                       onChange={e => setNewInventory({...newInventory, stock: parseInt(e.target.value)})}
                     />
                   </div>
