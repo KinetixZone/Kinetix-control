@@ -23,6 +23,7 @@ import {
   MessageCircle,
   Fingerprint,
   ShoppingBag,
+  Box,
   Lock,
   Trash2,
   Edit,
@@ -1673,6 +1674,13 @@ export default function App() {
             <ShoppingBag size={20} />
             <span className="font-medium">Ventas</span>
           </button>
+          <button 
+            onClick={() => { setActiveTab('inventory'); setIsMobileMenuOpen(false); }}
+            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'inventory' ? 'bg-blue-50 text-blue-600' : 'text-slate-500 hover:bg-slate-50'}`}
+          >
+            <Box size={20} />
+            <span className="font-medium">Inventario</span>
+          </button>
           
           {(currentRole === 'Leslie' || currentRole === 'Jorge') && (
             <button 
@@ -1810,6 +1818,15 @@ export default function App() {
               <Plus size={18} />
               Registrar Pago
             </button>
+            {(activeTab === 'sales' || activeTab === 'inventory') && (
+              <button 
+                onClick={() => setShowMakeSale(true)}
+                className="flex items-center gap-2 bg-emerald-600 text-white px-4 py-2 rounded-xl hover:bg-emerald-700 transition-all font-medium shadow-sm"
+              >
+                <ShoppingBag size={18} />
+                Registrar Venta
+              </button>
+            )}
           </div>
         </header>
 
@@ -3198,6 +3215,13 @@ export default function App() {
                 {currentRole === 'Leslie' && (
                   <div className="flex gap-2">
                     <button 
+                      onClick={() => setShowMakeSale(true)}
+                      className="flex items-center gap-2 text-xs bg-emerald-600 text-white px-4 py-2 rounded-xl hover:bg-emerald-700 transition-all font-bold shadow-sm"
+                    >
+                      <Plus size={14} />
+                      Nueva Venta
+                    </button>
+                    <button 
                       onClick={() => exportToXML(filteredSales, 'ventas_kinetix', 'Ventas', 'Venta')}
                       className="flex items-center gap-2 text-xs bg-indigo-600 text-white px-4 py-2 rounded-xl hover:bg-indigo-700 transition-all font-bold shadow-sm"
                       title="Exportar a XML"
@@ -3374,6 +3398,16 @@ export default function App() {
                     </div>
                     <div className="flex gap-2 pt-2">
                       <button 
+                        onClick={() => {
+                          setNewSale({ ...newSale, item_id: item.id, total_price: item.price * newSale.quantity });
+                          setShowMakeSale(true);
+                        }}
+                        className="flex-1 bg-emerald-50 text-emerald-600 py-2 rounded-xl font-bold text-xs flex items-center justify-center gap-2"
+                      >
+                        <ShoppingBag size={14} />
+                        Vender
+                      </button>
+                      <button 
                         onClick={() => handleEditInventory(item)}
                         className="flex-1 bg-slate-50 text-slate-600 py-2 rounded-xl font-bold text-xs flex items-center justify-center gap-2"
                       >
@@ -3401,8 +3435,15 @@ export default function App() {
                   <h3 className="font-bold text-lg">Control de Inventario</h3>
                   <p className="text-sm text-slate-500">Gestión de productos y suplementos</p>
                 </div>
-                {inventory.length > 0 && currentRole === 'Leslie' && (
-                  <div className="flex gap-2">
+                <div className="flex gap-2">
+                  <button 
+                    onClick={() => setShowAddInventory(true)}
+                    className="flex items-center gap-2 text-xs bg-emerald-600 text-white px-3 py-2 rounded-lg hover:bg-emerald-700 transition-all font-bold shadow-sm"
+                  >
+                    <Plus size={14} />
+                    Añadir Producto
+                  </button>
+                  {inventory.length > 0 && currentRole === 'Leslie' && (
                     <button 
                       onClick={() => exportToXML(inventory, 'inventario_kinetix', 'Inventario', 'Producto')}
                       className="flex items-center gap-2 text-xs bg-indigo-600 text-white px-3 py-2 rounded-lg hover:bg-indigo-700 transition-all font-bold shadow-sm"
@@ -3410,8 +3451,8 @@ export default function App() {
                       <FileText size={14} />
                       XML
                     </button>
-                  </div>
-                )}
+                  )}
+                </div>
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full text-left">
@@ -3447,7 +3488,17 @@ export default function App() {
                             </span>
                           </td>
                           <td className="px-6 py-4">
-                            <div className="flex gap-2">
+                            <div className="flex gap-3">
+                              <button 
+                                onClick={() => {
+                                  setNewSale({ ...newSale, item_id: item.id, total_price: item.price * newSale.quantity });
+                                  setShowMakeSale(true);
+                                }}
+                                className="text-emerald-600 hover:text-emerald-800 font-bold text-xs uppercase flex items-center gap-1"
+                              >
+                                <ShoppingBag size={12} />
+                                Vender
+                              </button>
                               <button 
                                 onClick={() => handleEditInventory(item)}
                                 className="text-blue-600 hover:text-blue-800 font-bold text-xs uppercase"
