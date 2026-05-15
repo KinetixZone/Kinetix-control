@@ -32,6 +32,7 @@ import {
   Receipt,
   Wallet,
   Apple,
+  Download,
   Check as CheckIcon
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
@@ -737,6 +738,24 @@ export default function App() {
     window.open(url, '_blank');
   };
 
+  const exportAttendanceToExcel = () => {
+    const dataToExport = attendance.map(a => ({
+      Nombre: a.name,
+      'Hora Check-in': a.check_in_time ? new Date(a.check_in_time).toLocaleTimeString() : '-'
+    }));
+    handleExportExcel(dataToExport, 'asistencia_kinetix');
+  };
+
+  const exportSalesToExcel = () => {
+    const dataToExport = filteredSales.map(s => ({
+      Producto: inventory.find(i => i.id === s.item_id)?.name || 'Producto eliminado',
+      Cantidad: s.quantity,
+      'Precio Total': s.total_price,
+      Fecha: new Date(s.sale_date).toLocaleDateString()
+    }));
+    handleExportExcel(dataToExport, 'ventas_kinetix');
+  };
+
   const exportAttendanceToCSV = () => {
     const headers = ['ID', 'Miembro', 'Hora de Entrada'];
     const rows = attendance.map(a => [
@@ -801,6 +820,30 @@ export default function App() {
       RegistradoPor: e.created_by
     }));
     handleExportExcel(dataToExport, 'gastos_kinetix');
+  };
+
+  const exportAnalyticsToExcel = () => {
+    const dataToExport = [
+      { Concepto: 'Ingresos Totales (Pagos + Ventas)', Monto: financialStats.total_income },
+      { Concepto: 'Gastos Totales', Monto: financialStats.total_expenses },
+      { Concepto: 'Utilidad Neta', Monto: financialStats.profit },
+      { Concepto: 'Margen de Utilidad', Monto: financialStats.total_income > 0 ? ((financialStats.profit / financialStats.total_income) * 100).toFixed(2) + '%' : '0%' },
+      { Concepto: 'Periodo', Monto: analyticsMonthFilter || analyticsYearFilter || 'Todo el tiempo' }
+    ];
+    handleExportExcel(dataToExport, `reporte_financiero_kinetix_${analyticsMonthFilter || analyticsYearFilter || 'general'}`);
+  };
+
+  const exportInventoryToExcel = () => {
+    const dataToExport = inventory.map(item => ({
+      Producto: item.name,
+      Categoría: item.category,
+      Stock: item.stock,
+      'Precio Venta': item.price,
+      'Costo': item.cost_price,
+      'Valor Total Stock (Costo)': item.stock * item.cost_price,
+      'Valor Total Stock (Venta)': item.stock * item.price
+    }));
+    handleExportExcel(dataToExport, 'inventario_kinetix');
   };
 
   const exportToXML = (data: any[], filename: string, rootName: string, itemName: string) => {
@@ -2980,6 +3023,13 @@ export default function App() {
               >
                 Limpiar Filtros
               </button>
+              <button 
+                onClick={exportAnalyticsToExcel}
+                className="flex items-center gap-2 text-xs bg-emerald-600 text-white px-4 py-2.5 rounded-xl hover:bg-emerald-700 transition-all font-bold shadow-sm"
+              >
+                <Download size={14} />
+                Excel
+              </button>
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
@@ -3110,6 +3160,13 @@ export default function App() {
                 {attendance.length > 0 && (
                   <div className="flex gap-2">
                     <button 
+                      onClick={exportAttendanceToExcel}
+                      className="flex items-center gap-2 text-xs bg-emerald-600 text-white px-3 py-2 rounded-lg hover:bg-emerald-700 transition-all font-bold shadow-sm"
+                    >
+                      <Download size={14} />
+                      Excel
+                    </button>
+                    <button 
                       onClick={exportAttendanceToCSV}
                       className="flex items-center gap-2 text-xs bg-slate-50 border border-slate-200 px-3 py-2 rounded-lg hover:bg-slate-100 transition-all font-bold"
                     >
@@ -3221,6 +3278,14 @@ export default function App() {
                     >
                       <Plus size={14} />
                       Nueva Venta
+                    </button>
+                    <button 
+                      onClick={exportSalesToExcel}
+                      className="flex items-center gap-2 text-xs bg-emerald-100 text-emerald-700 px-4 py-2 rounded-xl hover:bg-emerald-200 transition-all font-bold"
+                      title="Exportar a Excel"
+                    >
+                      <Download size={14} />
+                      Excel
                     </button>
                     <button 
                       onClick={() => exportToXML(filteredSales, 'ventas_kinetix', 'Ventas', 'Venta')}
@@ -3463,13 +3528,22 @@ export default function App() {
                     Añadir Producto
                   </button>
                   {inventory.length > 0 && currentRole === 'Leslie' && (
-                    <button 
-                      onClick={() => exportToXML(inventory, 'inventario_kinetix', 'Inventario', 'Producto')}
-                      className="flex items-center gap-2 text-xs bg-indigo-600 text-white px-3 py-2 rounded-lg hover:bg-indigo-700 transition-all font-bold shadow-sm"
-                    >
-                      <FileText size={14} />
-                      XML
-                    </button>
+                    <div className="flex gap-2">
+                      <button 
+                        onClick={exportInventoryToExcel}
+                        className="flex items-center gap-2 text-xs bg-emerald-600 text-white px-3 py-2 rounded-lg hover:bg-emerald-700 transition-all font-bold shadow-sm"
+                      >
+                        <Download size={14} />
+                        Excel
+                      </button>
+                      <button 
+                        onClick={() => exportToXML(inventory, 'inventario_kinetix', 'Inventario', 'Producto')}
+                        className="flex items-center gap-2 text-xs bg-indigo-600 text-white px-3 py-2 rounded-lg hover:bg-indigo-700 transition-all font-bold shadow-sm"
+                      >
+                        <FileText size={14} />
+                        XML
+                      </button>
+                    </div>
                   )}
                 </div>
               </div>
