@@ -134,7 +134,7 @@ export default function App() {
   const [errorMsg, setErrorMsg] = useState('');
 
   // Form states
-  const [newMember, setNewMember] = useState({ name: '', phone: '', email: '', birth_date: '', service_type: 'gym' as 'gym' | 'personalized' | 'nutrition' | 'personalized_nutrition' });
+  const [newMember, setNewMember] = useState({ name: '', phone: '', email: '', birth_date: '', service_type: 'gym' as 'gym' | 'personalized' | 'nutrition' | 'personalized_nutrition' | 'gym_nutrition' });
   const [newPayment, setNewPayment] = useState({
     member_id: '' as any,
     amount: 500,
@@ -146,7 +146,7 @@ export default function App() {
     notes: '',
     start_date: new Date().toISOString().split('T')[0],
     expiry_date: '',
-    category: 'gym' as 'gym' | 'personalized' | 'nutrition' | 'personalized_nutrition',
+    category: 'gym' as 'gym' | 'personalized' | 'nutrition' | 'personalized_nutrition' | 'gym_nutrition',
     nutritionist_commission: 0,
     commission_paid: false
   });
@@ -337,23 +337,33 @@ export default function App() {
   }, [payments, expenses, members]);
 
   const nutritionStats = useMemo(() => {
-    const nPayments = (payments || []).filter(p => p.category === 'nutrition' || p.category === 'personalized_nutrition');
+    const nPayments = (payments || []).filter(p => p.category === 'nutrition' || p.category === 'personalized_nutrition' || p.category === 'gym_nutrition');
     const nExpenses = (expenses || []).filter(e => e.category === 'nutrition');
     
     const income = nPayments.reduce((acc, curr) => {
-      if (curr.category === 'personalized_nutrition') {
+      if (curr.category === 'personalized_nutrition' || curr.category === 'gym_nutrition') {
         return acc + (Number(curr.nutritionist_commission) || 0);
       }
       return acc + (Number(curr.amount) || 0);
     }, 0);
+
+    const paidIncome = nPayments.reduce((acc, curr) => {
+      if (curr.category === 'personalized_nutrition' || curr.category === 'gym_nutrition') {
+        return curr.commission_paid ? acc + (Number(curr.nutritionist_commission) || 0) : acc;
+      }
+      return acc + (Number(curr.amount) || 0);
+    }, 0);
+
     const cost = nExpenses.reduce((acc, curr) => acc + (Number(curr.amount) || 0), 0);
 
     return {
       income,
+      paidIncome,
+      pendingIncome: income - paidIncome,
       expenses: cost,
       profit: income - cost,
       payments: nPayments,
-      memberCount: members.filter(m => m.service_type === 'nutrition' || m.service_type === 'personalized_nutrition').length
+      memberCount: members.filter(m => m.service_type === 'nutrition' || m.service_type === 'personalized_nutrition' || m.service_type === 'gym_nutrition').length
     };
   }, [payments, expenses, members]);
 
@@ -2071,7 +2081,8 @@ export default function App() {
                  { id: 'gym', label: 'Kinetix' },
                  { id: 'personalized', label: 'Personalizado' },
                  { id: 'nutrition', label: 'Solo Nutri' },
-                 { id: 'personalized_nutrition', label: 'Pack Completo' }
+                 { id: 'personalized_nutrition', label: 'Pack Pers.' },
+                 { id: 'gym_nutrition', label: 'Pack Kinetix' }
                ].map(service => (
                  <button
                    key={service.id}
@@ -2143,7 +2154,7 @@ export default function App() {
                                 <span className={`text-[8px] font-black uppercase tracking-tighter px-1 rounded ${
                                   m.service_type === 'personalized' ? 'bg-blue-50 text-blue-600' : 
                                   m.service_type === 'nutrition' ? 'bg-emerald-50 text-emerald-600' :
-                                  m.service_type === 'personalized_nutrition' ? 'bg-indigo-50 text-indigo-600' :
+                                  m.service_type === 'personalized_nutrition' || m.service_type === 'gym_nutrition' ? 'bg-indigo-50 text-indigo-600' :
                                   'bg-slate-100 text-slate-500'
                                 }`}>
                                   {m.service_type === 'gym' ? 'Kinetix' : 
@@ -2431,8 +2442,8 @@ export default function App() {
                                 'bg-indigo-50 text-indigo-600'
                               }`}>
                                 {p.category === 'personalized' ? 'Personalizado' : 
-                                 p.category === 'nutrition' ? 'Nutrición' : 
-                                 'Entreno + Nutri'}
+                                 p.category === 'nutrition' ? 'Sólo Nutri' : 
+                                 p.category === 'personalized_nutrition' ? 'Jorge + Nutri' : 'Kinetix + Nutri'}
                               </span>
                             </div>
                           )}
@@ -2535,8 +2546,8 @@ export default function App() {
                                 'bg-indigo-50 text-indigo-600'
                               }`}>
                                 {p.category === 'personalized' ? 'Personalizado' : 
-                                 p.category === 'nutrition' ? 'Nutrición' : 
-                                 'Entreno + Nutrición'}
+                                 p.category === 'nutrition' ? 'Solo Nutri' : 
+                                 p.category === 'personalized_nutrition' ? 'Jorge + Nutri' : 'Kinetix + Nutri'}
                               </div>
                             )}
                           </td>
@@ -3713,6 +3724,10 @@ export default function App() {
                   </div>
                   <p className="text-sm font-bold text-slate-400 uppercase tracking-wider">Ingresos</p>
                   <h4 className="text-3xl font-black text-slate-900 mt-1">${nutritionStats.income.toFixed(2)}</h4>
+                  <div className="flex gap-2 mt-2">
+                    <span className="text-[10px] font-bold text-blue-600">Cobrado: ${nutritionStats.paidIncome.toFixed(2)}</span>
+                    <span className="text-[10px] font-bold text-rose-600">Pend.: ${nutritionStats.pendingIncome.toFixed(2)}</span>
+                  </div>
                </div>
                <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm">
                   <div className="w-12 h-12 bg-rose-50 text-rose-600 rounded-2xl flex items-center justify-center mb-4">
@@ -3754,16 +3769,32 @@ export default function App() {
                                 <p className="text-xs text-slate-500">{new Date(p.payment_date).toLocaleDateString()}</p>
                               </div>
                             </div>
-                            <div className="text-right">
-                              <p className="font-black text-slate-900">
-                                ${p.category === 'personalized_nutrition' ? (Number(p.nutritionist_commission) || 0).toFixed(2) : (Number(p.amount) || 0).toFixed(2)}
-                              </p>
-                              <div className="flex flex-col items-end gap-1">
-                                <p className="text-[10px] text-slate-400 uppercase font-black tracking-widest text-[9px]">{p.payment_type}</p>
-                                {p.category === 'personalized_nutrition' && (
-                                  <span className="text-[8px] font-bold text-blue-500 italic">De paquete personalizado</span>
-                                )}
+                            <div className="flex flex-col items-end gap-1">
+                              <div className="text-right">
+                                <p className="font-black text-slate-900">
+                                  ${(p.category === 'personalized_nutrition' || p.category === 'gym_nutrition') ? (Number(p.nutritionist_commission) || 0).toFixed(2) : (Number(p.amount) || 0).toFixed(2)}
+                                </p>
+                                <div className="flex flex-col items-end">
+                                  <p className="text-[10px] text-slate-400 uppercase font-black tracking-widest text-[9px]">{p.payment_type}</p>
+                                  {(p.category === 'personalized_nutrition' || p.category === 'gym_nutrition') && (
+                                    <span className="text-[8px] font-bold text-blue-500 italic">De paquete combinado</span>
+                                  )}
+                                </div>
                               </div>
+                              {(p.category === 'personalized_nutrition' || p.category === 'gym_nutrition') && (
+                                <button 
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleToggleCommissionPaid(p.id, !p.commission_paid);
+                                  }}
+                                  className={`px-2 py-0.5 rounded text-[8px] font-black uppercase transition-all flex items-center gap-1 ${
+                                    p.commission_paid ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600 hover:bg-rose-100'
+                                  }`}
+                                >
+                                  {p.commission_paid ? <Check size={8} /> : null}
+                                  {p.commission_paid ? 'Pagado' : 'Marcar Pago'}
+                                </button>
+                              )}
                             </div>
                           </div>
                         ))
@@ -3780,10 +3811,10 @@ export default function App() {
                   </div>
                   <div className="overflow-y-auto max-h-[400px]">
                     <div className="divide-y divide-slate-50">
-                      {members.filter(m => m.service_type === 'nutrition' || m.service_type === 'personalized_nutrition').length === 0 ? (
+                      {members.filter(m => m.service_type === 'nutrition' || m.service_type === 'personalized_nutrition' || m.service_type === 'gym_nutrition').length === 0 ? (
                         <div className="p-12 text-center text-slate-400 italic">No hay pacientes registrados.</div>
                       ) : (
-                        members.filter(m => m.service_type === 'nutrition' || m.service_type === 'personalized_nutrition').map(m => (
+                        members.filter(m => m.service_type === 'nutrition' || m.service_type === 'personalized_nutrition' || m.service_type === 'gym_nutrition').map(m => (
                           <div key={m.id} className="p-4 hover:bg-slate-50 flex items-center justify-between transition-all">
                             <div className="flex items-center gap-4">
                               <div className="w-10 h-10 bg-emerald-50 text-emerald-600 rounded-xl flex items-center justify-center font-bold">
@@ -3795,11 +3826,16 @@ export default function App() {
                               </div>
                             </div>
                             <div className="text-right flex flex-col items-end gap-1">
-                                <span className="px-2 py-1 bg-emerald-50 text-emerald-700 rounded-lg text-[10px] font-black uppercase tracking-tighter">
-                                    {m.service_type === 'personalized_nutrition' ? 'PAQUETE COMPLETO' : 'NUTRICIÓN'}
+                                <span className={`px-2 py-1 rounded-lg text-[10px] font-black uppercase tracking-tighter ${
+                                  m.service_type === 'nutrition' ? 'bg-emerald-50 text-emerald-700' : 'bg-indigo-50 text-indigo-700'
+                                }`}>
+                                    {m.service_type === 'personalized_nutrition' ? 'PACK JORGE + NUTRI' : 
+                                     m.service_type === 'gym_nutrition' ? 'PACK KINETIX + NUTRI' : 'SOLO NUTRICIÓN'}
                                 </span>
-                                {m.service_type === 'personalized_nutrition' && (
-                                  <span className="text-[9px] bg-amber-50 text-amber-600 px-1.5 rounded-md font-bold">+ ENTRENAMIENTO</span>
+                                {(m.service_type === 'personalized_nutrition' || m.service_type === 'gym_nutrition') && (
+                                  <span className="text-[9px] bg-amber-50 text-amber-600 px-1.5 rounded-md font-bold">
+                                    {m.service_type === 'personalized_nutrition' ? '+ PERSONALIZADO' : '+ KINETIX'}
+                                  </span>
                                 )}
                             </div>
                           </div>
@@ -3881,6 +3917,7 @@ export default function App() {
                     <option value="personalized">Entrenamiento Personalizado</option>
                     <option value="nutrition">Nutrición</option>
                     <option value="personalized_nutrition">Personalizado + Nutrición</option>
+                    <option value="gym_nutrition">Kinetix + Nutrición</option>
                   </select>
                 </div>
                 {errorMsg && (
@@ -4152,10 +4189,11 @@ export default function App() {
                       <option value="personalized">Entrenamiento Personalizado (Jorge)</option>
                       <option value="nutrition">Nutrición</option>
                       <option value="personalized_nutrition">Personalizado + Nutrición</option>
+                      <option value="gym_nutrition">Kinetix + Nutrición</option>
                     </select>
                 </div>
 
-                {newPayment.category === 'personalized_nutrition' && (
+                {(newPayment.category === 'personalized_nutrition' || newPayment.category === 'gym_nutrition') && (
                   <div className="p-4 bg-emerald-50 rounded-2xl border border-emerald-100 animate-in fade-in zoom-in duration-300">
                     <label className="block text-sm font-bold text-emerald-700 mb-2 flex items-center gap-2">
                        <Apple size={16} />

@@ -6,7 +6,7 @@ export interface Member {
   birth_date: string | null;
   created_at?: string;
   last_expiry?: string | null;
-  service_type?: 'gym' | 'personalized' | 'nutrition' | 'personalized_nutrition';
+  service_type?: 'gym' | 'personalized' | 'nutrition' | 'personalized_nutrition' | 'gym_nutrition';
 }
 
 export interface Payment {
@@ -21,7 +21,7 @@ export interface Payment {
   payment_date: string;
   expiry_date: string | null;
   notes?: string;
-  category?: 'gym' | 'personalized' | 'nutrition' | 'personalized_nutrition';
+  category?: 'gym' | 'personalized' | 'nutrition' | 'personalized_nutrition' | 'gym_nutrition';
   nutritionist_commission?: number;
   commission_paid?: boolean;
 }
