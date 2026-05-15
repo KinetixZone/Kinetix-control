@@ -145,7 +145,9 @@ export default function App() {
     notes: '',
     start_date: new Date().toISOString().split('T')[0],
     expiry_date: '',
-    category: 'gym' as 'gym' | 'personalized' | 'nutrition' | 'personalized_nutrition'
+    category: 'gym' as 'gym' | 'personalized' | 'nutrition' | 'personalized_nutrition',
+    nutritionist_commission: 0,
+    commission_paid: false
   });
   const [newExpense, setNewExpense] = useState({
     description: '',
@@ -316,12 +318,17 @@ export default function App() {
     const pExpenses = (expenses || []).filter(e => e.category === 'personalized');
     
     const income = pPayments.reduce((acc, curr) => acc + (Number(curr.amount) || 0), 0);
+    const nutritionistCut = pPayments.reduce((acc, curr) => acc + (Number(curr.nutritionist_commission) || 0), 0);
+    const nutritionistCutPaid = pPayments.filter(p => p.commission_paid).reduce((acc, curr) => acc + (Number(curr.nutritionist_commission) || 0), 0);
     const cost = pExpenses.reduce((acc, curr) => acc + (Number(curr.amount) || 0), 0);
 
     return {
       income,
+      nutritionistCut,
+      nutritionistCutPaid,
+      nutritionistCutPending: nutritionistCut - nutritionistCutPaid,
       expenses: cost,
-      profit: income - cost,
+      profit: income - cost - nutritionistCut,
       payments: pPayments,
       expensesList: pExpenses,
       memberCount: members.filter(m => m.service_type === 'personalized' || m.service_type === 'personalized_nutrition').length
@@ -332,7 +339,12 @@ export default function App() {
     const nPayments = (payments || []).filter(p => p.category === 'nutrition' || p.category === 'personalized_nutrition');
     const nExpenses = (expenses || []).filter(e => e.category === 'nutrition');
     
-    const income = nPayments.reduce((acc, curr) => acc + (Number(curr.amount) || 0), 0);
+    const income = nPayments.reduce((acc, curr) => {
+      if (curr.category === 'personalized_nutrition') {
+        return acc + (Number(curr.nutritionist_commission) || 0);
+      }
+      return acc + (Number(curr.amount) || 0);
+    }, 0);
     const cost = nExpenses.reduce((acc, curr) => acc + (Number(curr.amount) || 0), 0);
 
     return {
@@ -573,7 +585,10 @@ export default function App() {
       notes: payment.notes || '',
       start_date: payment.payment_date ? payment.payment_date.split('T')[0] : new Date().toISOString().split('T')[0],
       months: 1,
-      expiry_date: payment.expiry_date ? payment.expiry_date.split('T')[0] : ''
+      expiry_date: payment.expiry_date ? payment.expiry_date.split('T')[0] : '',
+      category: payment.category || 'gym',
+      nutritionist_commission: payment.nutritionist_commission || 0,
+      commission_paid: payment.commission_paid || false
     });
     setIsEditing(true);
     setEditingId(payment.id);
@@ -984,7 +999,9 @@ export default function App() {
                 expiry_date,
                 payment_date: finalPaymentDate,
                 notes: encryptData(newPayment.notes || ''),
-                category: newPayment.category || 'gym'
+                category: newPayment.category || 'gym',
+                nutritionist_commission: newPayment.category === 'personalized_nutrition' ? newPayment.nutritionist_commission : 0,
+                commission_paid: newPayment.commission_paid || false
               })
               .eq('id', editingId);
             if (error) throw error;
@@ -1002,7 +1019,9 @@ export default function App() {
                 expiry_date,
                 payment_date: finalPaymentDate,
                 notes: encryptData(newPayment.notes || ''),
-                category: newPayment.category || 'gym'
+                category: newPayment.category || 'gym',
+                nutritionist_commission: newPayment.category === 'personalized_nutrition' ? newPayment.nutritionist_commission : 0,
+                commission_paid: newPayment.commission_paid || false
               }]);
             if (error) throw error;
             addToast('Pago registrado correctamente');
@@ -1021,7 +1040,9 @@ export default function App() {
             notes: '',
             start_date: new Date().toISOString().split('T')[0],
             expiry_date: '',
-            category: 'gym' as any
+            category: 'gym' as any,
+            nutritionist_commission: 0,
+            commission_paid: false
           });
           setPaymentSearchTerm('');
           setIsEditing(false);
@@ -3410,34 +3431,45 @@ export default function App() {
             </div>
 
             {/* Stats Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-               <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+               <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm col-span-1">
                   <div className="w-12 h-12 bg-blue-50 text-blue-600 rounded-2xl flex items-center justify-center mb-4">
                     <Users size={24} />
                   </div>
-                  <p className="text-sm font-bold text-slate-400 uppercase tracking-wider">Alumnos Activos</p>
+                  <p className="text-sm font-bold text-slate-400 uppercase tracking-wider">Alumnos</p>
                   <h4 className="text-3xl font-black text-slate-900 mt-1">{personalizedStats.memberCount}</h4>
                </div>
-               <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm">
+               <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm col-span-1">
                   <div className="w-12 h-12 bg-emerald-50 text-emerald-600 rounded-2xl flex items-center justify-center mb-4">
                     <TrendingUp size={24} />
                   </div>
-                  <p className="text-sm font-bold text-slate-400 uppercase tracking-wider">Ingresos Totales</p>
+                  <p className="text-sm font-bold text-slate-400 uppercase tracking-wider">Ingresos</p>
                   <h4 className="text-3xl font-black text-slate-900 mt-1">${personalizedStats.income.toFixed(2)}</h4>
                </div>
-               <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm">
+               <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm col-span-1">
                   <div className="w-12 h-12 bg-rose-50 text-rose-600 rounded-2xl flex items-center justify-center mb-4">
                     <TrendingDown size={24} />
                   </div>
                   <p className="text-sm font-bold text-slate-400 uppercase tracking-wider">Gastos</p>
                   <h4 className="text-3xl font-black text-slate-900 mt-1">${personalizedStats.expenses.toFixed(2)}</h4>
                </div>
-               <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm">
-                  <div className="w-12 h-12 bg-amber-50 text-amber-600 rounded-2xl flex items-center justify-center mb-4">
+               <div className="bg-white p-6 rounded-3xl border border-emerald-100 shadow-sm col-span-1 relative">
+                  <div className="w-12 h-12 bg-emerald-50 text-emerald-600 rounded-2xl flex items-center justify-center mb-4">
+                    <Apple size={24} />
+                  </div>
+                  <p className="text-sm font-bold text-emerald-400 uppercase tracking-wider">A Nutrióloga</p>
+                  <h4 className="text-3xl font-black text-emerald-900 mt-1">${personalizedStats.nutritionistCut.toFixed(2)}</h4>
+                  <div className="flex gap-2 mt-2">
+                    <span className="text-[10px] font-bold text-blue-600">Pagado: ${personalizedStats.nutritionistCutPaid.toFixed(2)}</span>
+                    <span className="text-[10px] font-bold text-rose-600 underline">Deuda: ${personalizedStats.nutritionistCutPending.toFixed(2)}</span>
+                  </div>
+               </div>
+               <div className="bg-gradient-to-br from-indigo-500 to-purple-600 p-6 rounded-3xl text-white shadow-lg col-span-1 sm:col-span-2 lg:col-span-1">
+                  <div className="w-12 h-12 bg-white/20 rounded-2xl flex items-center justify-center mb-4">
                     <Wallet size={24} />
                   </div>
-                  <p className="text-sm font-bold text-slate-400 uppercase tracking-wider">Utilidad</p>
-                  <h4 className="text-3xl font-black text-slate-900 mt-1">${personalizedStats.profit.toFixed(2)}</h4>
+                  <p className="text-sm font-bold text-indigo-100 uppercase tracking-wider">Utilidad Jorge</p>
+                  <h4 className="text-3xl font-black mt-1">${personalizedStats.profit.toFixed(2)}</h4>
                </div>
             </div>
 
@@ -3467,7 +3499,36 @@ export default function App() {
                             </div>
                             <div className="text-right">
                               <p className="font-black text-slate-900">${(Number(p.amount) || 0).toFixed(2)}</p>
-                              <p className="text-[10px] text-slate-400 uppercase font-black tracking-widest">{p.payment_type}</p>
+                              <div className="flex flex-col items-end gap-1">
+                                <p className="text-[10px] text-slate-400 uppercase font-black tracking-widest">{p.payment_type}</p>
+                                {p.nutritionist_commission && p.nutritionist_commission > 0 && (
+                                  <div className="flex items-center gap-1">
+                                    <span className="text-[9px] font-bold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded">
+                                      Nutri: ${p.nutritionist_commission}
+                                    </span>
+                                    <button 
+                                      onClick={async (e) => {
+                                        e.stopPropagation();
+                                        if (currentRole !== 'Leslie' && currentRole !== 'Jorge') return;
+                                        try {
+                                          const { error } = await supabase
+                                            .from('payments')
+                                            .update({ commission_paid: !p.commission_paid })
+                                            .eq('id', p.id);
+                                          if (error) throw error;
+                                          fetchData();
+                                        } catch (err) {
+                                          console.error('Error toggling commission:', err);
+                                        }
+                                      }}
+                                      className={`text-[8px] font-black uppercase px-1 rounded transition-all hover:scale-110 active:scale-95 ${p.commission_paid ? 'bg-blue-100 text-blue-600' : 'bg-rose-100 text-rose-600'}`}
+                                      title={p.commission_paid ? 'Marcar como pendiente' : 'Marcar como pagado'}
+                                    >
+                                      {p.commission_paid ? 'PAGADO' : 'PEND.'}
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
                             </div>
                           </div>
                         ))
@@ -3513,6 +3574,36 @@ export default function App() {
                   </div>
                </div>
             </div>
+
+            {/* Expenses List */}
+            {personalizedStats.expensesList.length > 0 && (
+              <div className="bg-white rounded-[2rem] border border-slate-100 shadow-sm overflow-hidden animate-in fade-in slide-in-from-top-4 duration-500">
+                <div className="p-6 border-b border-slate-50 flex items-center justify-between">
+                  <h3 className="text-xl font-black text-slate-900">Gastos de Entrenamiento Personalizado</h3>
+                  <TrendingDown className="text-rose-400" size={20} />
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left">
+                    <thead className="bg-slate-50">
+                      <tr>
+                        <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Concepto</th>
+                        <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Fecha</th>
+                        <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Monto</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-50">
+                      {personalizedStats.expensesList.map(e => (
+                        <tr key={e.id} className="hover:bg-slate-50">
+                          <td className="px-6 py-4 font-bold text-slate-700">{e.description}</td>
+                          <td className="px-6 py-4 text-sm text-slate-500">{new Date(e.expense_date).toLocaleDateString()}</td>
+                          <td className="px-6 py-4 font-mono font-bold text-rose-600">${(e.amount || 0).toFixed(2)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
           </div>
         )}
         {activeTab === 'nutrition' && (
@@ -3612,8 +3703,15 @@ export default function App() {
                               </div>
                             </div>
                             <div className="text-right">
-                              <p className="font-black text-slate-900">${(Number(p.amount) || 0).toFixed(2)}</p>
-                              <p className="text-[10px] text-slate-400 uppercase font-black tracking-widest text-[9px]">{p.payment_type}</p>
+                              <p className="font-black text-slate-900">
+                                ${p.category === 'personalized_nutrition' ? (Number(p.nutritionist_commission) || 0).toFixed(2) : (Number(p.amount) || 0).toFixed(2)}
+                              </p>
+                              <div className="flex flex-col items-end gap-1">
+                                <p className="text-[10px] text-slate-400 uppercase font-black tracking-widest text-[9px]">{p.payment_type}</p>
+                                {p.category === 'personalized_nutrition' && (
+                                  <span className="text-[8px] font-bold text-blue-500 italic">De paquete personalizado</span>
+                                )}
+                              </div>
                             </div>
                           </div>
                         ))
@@ -3733,6 +3831,28 @@ export default function App() {
                     <option value="personalized_nutrition">Personalizado + Nutrición</option>
                   </select>
                 </div>
+
+                {newPayment.category === 'personalized_nutrition' && (
+                  <div className="p-4 bg-emerald-50 rounded-2xl border border-emerald-100 animate-in fade-in zoom-in duration-300">
+                    <label className="block text-sm font-bold text-emerald-700 mb-2 flex items-center gap-2">
+                       <Apple size={16} />
+                       Comisión para Nutrióloga ($)
+                    </label>
+                    <input 
+                      type="number" 
+                      placeholder="Ej: 200"
+                      className="w-full px-4 py-2 bg-white border border-emerald-200 rounded-xl focus:ring-2 focus:ring-emerald-500/20 outline-none font-bold text-emerald-900"
+                      value={newPayment.nutritionist_commission || ''}
+                      onChange={e => {
+                        const val = e.target.value;
+                        setNewPayment({...newPayment, nutritionist_commission: val === '' ? 0 : parseFloat(val)});
+                      }}
+                    />
+                    <p className="text-[10px] text-emerald-600 mt-2 font-medium">
+                      Este monto se descontará de la utilidad de Jorge en sus reportes personalizados.
+                    </p>
+                  </div>
+                )}
                 {errorMsg && (
                   <div className="bg-rose-50 text-rose-600 p-3 rounded-xl text-sm flex items-center gap-2">
                     <AlertCircle size={16} />

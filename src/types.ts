@@ -22,6 +22,8 @@ export interface Payment {
   expiry_date: string | null;
   notes?: string;
   category?: 'gym' | 'personalized' | 'nutrition' | 'personalized_nutrition';
+  nutritionist_commission?: number;
+  commission_paid?: boolean;
 }
 
 export interface Expense {
