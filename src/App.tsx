@@ -128,6 +128,7 @@ export default function App() {
   const [analyticsMonthFilter, setAnalyticsMonthFilter] = useState(new Date().toISOString().slice(0, 7)); // Default to current month
   const [analyticsYearFilter, setAnalyticsYearFilter] = useState(new Date().getFullYear().toString());
   const [memberFilterTab, setMemberFilterTab] = useState<'all' | 'new' | 'active' | 'expired'>('all');
+  const [memberServiceFilter, setMemberServiceFilter] = useState<string>('');
   const [selectedMember, setSelectedMember] = useState<Member | null>(null);
   const [currentRole, setCurrentRole] = useState<Role>('Leslie');
   const [errorMsg, setErrorMsg] = useState('');
@@ -1347,6 +1348,8 @@ export default function App() {
     const matchesSearch = (m.name?.toLowerCase() || '').includes(searchTerm.toLowerCase()) ||
                          (m.phone || '').includes(searchTerm);
     
+    const matchesService = memberServiceFilter ? m.service_type === memberServiceFilter : true;
+    
     let matchesTab = true;
 
     if (memberFilterTab === 'new') {
@@ -1365,7 +1368,7 @@ export default function App() {
       ? m.created_at?.startsWith(memberMonthFilter) || false 
       : true;
 
-    return matchesSearch && matchesMonth && matchesTab;
+    return matchesSearch && matchesMonth && matchesTab && matchesService;
   });
 
   const memberStats = useMemo(() => {
@@ -2061,6 +2064,29 @@ export default function App() {
               ))}
             </div>
 
+            <div className="flex flex-wrap gap-2 mb-2 p-1 bg-slate-100 rounded-2xl w-fit">
+               <label className="px-3 py-2 text-[10px] font-black text-slate-400 uppercase tracking-widest border-r border-slate-200">Filtrar por Servicio:</label>
+               {[
+                 { id: '', label: 'Cualquiera' },
+                 { id: 'gym', label: 'Kinetix' },
+                 { id: 'personalized', label: 'Personalizado' },
+                 { id: 'nutrition', label: 'Solo Nutri' },
+                 { id: 'personalized_nutrition', label: 'Pack Completo' }
+               ].map(service => (
+                 <button
+                   key={service.id}
+                   onClick={() => setMemberServiceFilter(service.id)}
+                   className={`px-3 py-2 rounded-xl text-[10px] font-black uppercase transition-all ${
+                     memberServiceFilter === service.id
+                     ? 'bg-white text-blue-600 shadow-sm' 
+                     : 'text-slate-500 hover:text-slate-700'
+                   }`}
+                 >
+                   {service.label}
+                 </button>
+               ))}
+            </div>
+
             <div className="bg-white rounded-3xl shadow-sm border border-slate-100 p-6 flex flex-col md:flex-row gap-6 items-center">
               <div className="relative flex-1 w-full">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
@@ -2111,7 +2137,21 @@ export default function App() {
                           </div>
                           <div>
                             <h4 className="font-bold text-slate-900 text-lg leading-tight">{m.name}</h4>
-                            <p className="text-xs text-slate-400 font-medium">{m.phone || 'Sin teléfono'}</p>
+                            <div className="flex items-center gap-2 mb-1">
+                              <p className="text-xs text-slate-400 font-medium">{m.phone || 'Sin teléfono'}</p>
+                              {m.service_type && (
+                                <span className={`text-[8px] font-black uppercase tracking-tighter px-1 rounded ${
+                                  m.service_type === 'personalized' ? 'bg-blue-50 text-blue-600' : 
+                                  m.service_type === 'nutrition' ? 'bg-emerald-50 text-emerald-600' :
+                                  m.service_type === 'personalized_nutrition' ? 'bg-indigo-50 text-indigo-600' :
+                                  'bg-slate-100 text-slate-500'
+                                }`}>
+                                  {m.service_type === 'gym' ? 'Kinetix' : 
+                                   m.service_type === 'personalized' ? 'Pers.' : 
+                                   m.service_type === 'nutrition' ? 'Nutri' : 'Pack'}
+                                </span>
+                              )}
+                            </div>
                           </div>
                         </div>
                         <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${isExp ? 'bg-rose-50 text-rose-600' : 'bg-emerald-50 text-emerald-600'}`}>
@@ -2186,7 +2226,19 @@ export default function App() {
                           {(filteredMembers.length - idx).toString().padStart(3, '0')}
                         </td>
                         <td className="px-6 py-4">
-                          <div className="font-medium text-slate-900">{m.name}</div>
+                          <div className="flex items-center gap-2">
+                            <div className="font-medium text-slate-900">{m.name}</div>
+                            {m.service_type && m.service_type !== 'gym' && (
+                              <span className={`text-[8px] font-black uppercase tracking-tighter px-1.5 py-0.5 rounded ${
+                                m.service_type === 'personalized' ? 'bg-blue-50 text-blue-600' : 
+                                m.service_type === 'nutrition' ? 'bg-emerald-50 text-emerald-600' :
+                                'bg-indigo-50 text-indigo-600'
+                              }`}>
+                                {m.service_type === 'personalized' ? 'Personalizado' : 
+                                 m.service_type === 'nutrition' ? 'Nutri' : 'Personalizado + Nutri'}
+                              </span>
+                            )}
+                          </div>
                           <div className="text-[10px] text-slate-400 font-medium">{m.email || 'Sin correo registrado'}</div>
                         </td>
                         <td className="px-6 py-4 text-sm text-slate-600">{m.phone}</td>
@@ -3831,28 +3883,6 @@ export default function App() {
                     <option value="personalized_nutrition">Personalizado + Nutrición</option>
                   </select>
                 </div>
-
-                {newPayment.category === 'personalized_nutrition' && (
-                  <div className="p-4 bg-emerald-50 rounded-2xl border border-emerald-100 animate-in fade-in zoom-in duration-300">
-                    <label className="block text-sm font-bold text-emerald-700 mb-2 flex items-center gap-2">
-                       <Apple size={16} />
-                       Comisión para Nutrióloga ($)
-                    </label>
-                    <input 
-                      type="number" 
-                      placeholder="Ej: 200"
-                      className="w-full px-4 py-2 bg-white border border-emerald-200 rounded-xl focus:ring-2 focus:ring-emerald-500/20 outline-none font-bold text-emerald-900"
-                      value={newPayment.nutritionist_commission || ''}
-                      onChange={e => {
-                        const val = e.target.value;
-                        setNewPayment({...newPayment, nutritionist_commission: val === '' ? 0 : parseFloat(val)});
-                      }}
-                    />
-                    <p className="text-[10px] text-emerald-600 mt-2 font-medium">
-                      Este monto se descontará de la utilidad de Jorge en sus reportes personalizados.
-                    </p>
-                  </div>
-                )}
                 {errorMsg && (
                   <div className="bg-rose-50 text-rose-600 p-3 rounded-xl text-sm flex items-center gap-2">
                     <AlertCircle size={16} />
@@ -4124,6 +4154,28 @@ export default function App() {
                       <option value="personalized_nutrition">Personalizado + Nutrición</option>
                     </select>
                 </div>
+
+                {newPayment.category === 'personalized_nutrition' && (
+                  <div className="p-4 bg-emerald-50 rounded-2xl border border-emerald-100 animate-in fade-in zoom-in duration-300">
+                    <label className="block text-sm font-bold text-emerald-700 mb-2 flex items-center gap-2">
+                       <Apple size={16} />
+                       Comisión para Nutrióloga ($)
+                    </label>
+                    <input 
+                      type="number" 
+                      placeholder="Ej: 200"
+                      className="w-full px-4 py-2 bg-white border border-emerald-200 rounded-xl focus:ring-2 focus:ring-emerald-500/20 outline-none font-bold text-emerald-900"
+                      value={newPayment.nutritionist_commission || ''}
+                      onChange={e => {
+                        const val = e.target.value;
+                        setNewPayment({...newPayment, nutritionist_commission: val === '' ? 0 : parseFloat(val)});
+                      }}
+                    />
+                    <p className="text-[10px] text-emerald-600 mt-2 font-medium">
+                      Este monto se descontará de la utilidad de Jorge en sus reportes personalizados.
+                    </p>
+                  </div>
+                )}
 
                 <div className="bg-indigo-50 p-4 rounded-2xl">
                   <div className="flex justify-between text-sm text-indigo-600 font-medium">
