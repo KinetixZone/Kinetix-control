@@ -133,7 +133,16 @@ export default function App() {
   const [errorMsg, setErrorMsg] = useState('');
 
   // Form states
-  const [newMember, setNewMember] = useState({ name: '', phone: '', email: '', birth_date: '', service_type: 'gym' as 'gym' | 'personalized' | 'nutrition' | 'personalized_nutrition' | 'gym_nutrition' });
+  const [newMember, setNewMember] = useState({ 
+    name: '', 
+    phone: '', 
+    email: '', 
+    birth_date: '', 
+    service_type: 'gym' as 'gym' | 'personalized' | 'nutrition' | 'personalized_nutrition' | 'gym_nutrition',
+    has_signed_waiver: false,
+    has_image_use_consent: false,
+    internal_notes: ''
+  });
   const [newPayment, setNewPayment] = useState({
     member_id: '' as any,
     amount: 500,
@@ -875,7 +884,10 @@ export default function App() {
             phone: newMember.phone?.trim() || null,
             email: newMember.email?.trim() || null,
             birth_date: newMember.birth_date || null,
-            service_type: newMember.service_type || 'gym'
+            service_type: newMember.service_type || 'gym',
+            has_signed_waiver: newMember.has_signed_waiver,
+            has_image_use_consent: newMember.has_image_use_consent,
+            internal_notes: newMember.internal_notes?.trim() || null
           };
 
           let result;
@@ -906,7 +918,16 @@ export default function App() {
             return;
           }
 
-          setNewMember({ name: '', phone: '', email: '', birth_date: '', service_type: 'gym' });
+          setNewMember({ 
+            name: '', 
+            phone: '', 
+            email: '', 
+            birth_date: '', 
+            service_type: 'gym',
+            has_signed_waiver: false,
+            has_image_use_consent: false,
+            internal_notes: ''
+          });
           setShowAddMember(false);
           setIsEditing(false);
           setEditingId(null);
@@ -932,7 +953,10 @@ export default function App() {
       phone: member.phone || '',
       email: member.email || '',
       birth_date: member.birth_date || '',
-      service_type: member.service_type || 'gym'
+      service_type: member.service_type || 'gym',
+      has_signed_waiver: member.has_signed_waiver || false,
+      has_image_use_consent: member.has_image_use_consent || false,
+      internal_notes: member.internal_notes || ''
     });
     setIsEditing(true);
     setEditingId(member.id);
@@ -2055,6 +2079,38 @@ export default function App() {
                   )}
                 </div>
               </div>
+
+              {/* Documentation Alerts (Leslie's internal management focus) */}
+              <div className="md:col-span-4 lg:col-span-2 bg-white rounded-[2.5rem] shadow-sm border border-slate-100 p-8 flex flex-col">
+                <div className="flex items-center justify-between mb-6">
+                  <h3 className="font-bold text-xl">Gestión Legal</h3>
+                  <div className="px-2 py-1 bg-rose-50 text-rose-600 rounded-lg text-[10px] font-black uppercase tracking-tighter">Control Interno</div>
+                </div>
+                <div className="space-y-4 flex-1">
+                  {members.filter(m => !m.has_signed_waiver).length === 0 ? (
+                    <div className="flex flex-col items-center justify-center p-8 text-center bg-emerald-50/50 rounded-3xl h-full border border-emerald-100/50">
+                      <div className="w-12 h-12 bg-white text-emerald-600 rounded-2xl flex items-center justify-center mb-4 shadow-sm shadow-emerald-200/50">
+                        <CheckCircle2 size={24} />
+                      </div>
+                      <p className="text-sm font-bold text-emerald-700">Documentación al día</p>
+                      <p className="text-[10px] text-emerald-600/60 mt-1 uppercase font-black">Firma responsiva completa</p>
+                    </div>
+                  ) : (
+                    members.filter(m => !m.has_signed_waiver).slice(0, 5).map(m => (
+                      <div key={m.id} className="flex items-center justify-between p-4 bg-rose-50/50 border border-rose-100/50 rounded-2xl group hover:bg-rose-50 transition-all cursor-default">
+                        <div>
+                          <div className="font-bold text-sm text-slate-900 leading-tight">{m.name}</div>
+                          <div className="text-[9px] font-black text-rose-500 uppercase tracking-widest mt-1 italic">Falta firma responsiva</div>
+                        </div>
+                        <AlertCircle size={16} className="text-rose-300 group-hover:animate-pulse" />
+                      </div>
+                    ))
+                  )}
+                  {members.filter(m => !m.has_signed_waiver).length > 5 && (
+                    <p className="text-[10px] text-slate-400 text-center uppercase font-black py-2 tracking-widest">+ {members.filter(m => !m.has_signed_waiver).length - 5} más con firma pendiente</p>
+                  )}
+                </div>
+              </div>
             </div>
           </div>
         )}
@@ -2164,6 +2220,31 @@ export default function App() {
                             <h4 className="font-bold text-slate-900 text-lg leading-tight">{m.name}</h4>
                             <div className="flex items-center gap-2 mb-1">
                               <p className="text-xs text-slate-400 font-medium">{m.phone || 'Sin teléfono'}</p>
+                              <div className="flex flex-wrap gap-1 mt-0.5">
+                                {m.has_signed_waiver ? (
+                                  <span className="bg-emerald-50 text-emerald-600 text-[6px] font-black px-1 rounded flex items-center gap-0.5" title="Carta Responsiva OK">
+                                    <ShieldCheck size={6} /> RESP.
+                                  </span>
+                                ) : (
+                                  <span className="bg-rose-50 text-rose-600 text-[6px] font-black px-1 rounded flex items-center gap-0.5" title="Pendiente Carta Responsiva">
+                                    <AlertCircle size={6} /> RESP.
+                                  </span>
+                                )}
+                                {m.has_image_use_consent ? (
+                                  <span className="bg-emerald-50 text-emerald-600 text-[6px] font-black px-1 rounded flex items-center gap-0.5" title="Uso Imagen OK">
+                                    <Receipt size={6} /> IMG.
+                                  </span>
+                                ) : (
+                                  <span className="bg-slate-100 text-slate-400 text-[6px] font-black px-1 rounded flex items-center gap-0.5" title="Sin Consentimiento Imagen">
+                                    <Receipt size={6} /> IMG.
+                                  </span>
+                                )}
+                                {m.internal_notes && (
+                                  <span className="bg-amber-50 text-amber-600 text-[6px] font-black px-1 rounded flex items-center gap-0.5" title="Tiene notas internas">
+                                    <FileText size={6} /> NOTAS
+                                  </span>
+                                )}
+                              </div>
                               {m.service_type && (
                                 <span className={`text-[8px] font-black uppercase tracking-tighter px-1 rounded ${
                                   m.service_type === 'personalized' ? 'bg-amber-50 text-amber-600' : 
@@ -2265,6 +2346,31 @@ export default function App() {
                             )}
                           </div>
                           <div className="text-[10px] text-slate-400 font-medium">{m.email || 'Sin correo registrado'}</div>
+                          <div className="flex items-center gap-1 mt-1">
+                            {m.has_signed_waiver ? (
+                                <span className="bg-emerald-50 text-emerald-600 text-[7px] font-black px-1 rounded flex items-center gap-0.5" title="Carta Responsiva OK">
+                                  <ShieldCheck size={8} /> RESP.
+                                </span>
+                              ) : (
+                                <span className="bg-rose-50 text-rose-600 text-[7px] font-black px-1 rounded flex items-center gap-0.5" title="Pendiente Carta Responsiva">
+                                  <AlertCircle size={8} /> RESP.
+                                </span>
+                              )}
+                              {m.has_image_use_consent ? (
+                                <span className="bg-emerald-50 text-emerald-600 text-[7px] font-black px-1 rounded flex items-center gap-0.5" title="Uso Imagen OK">
+                                  <Receipt size={8} /> IMG.
+                                </span>
+                              ) : (
+                                <span className="bg-slate-100 text-slate-400 text-[7px] font-black px-1 rounded flex items-center gap-0.5" title="Sin Consentimiento Imagen">
+                                  <Receipt size={8} /> IMG.
+                                </span>
+                              )}
+                              {m.internal_notes && (
+                                <span className="bg-amber-50 text-amber-600 text-[7px] font-black px-1 rounded flex items-center gap-0.5" title="Tiene notas internas">
+                                  <FileText size={8} /> NOTAS
+                                </span>
+                              )}
+                          </div>
                         </td>
                         <td className="px-6 py-4 text-sm text-slate-600">{m.phone}</td>
                         <td className="px-6 py-4 text-sm text-slate-600">
@@ -3934,6 +4040,44 @@ export default function App() {
                     <option value="gym_nutrition">Kinetix + Nutrición</option>
                   </select>
                 </div>
+
+                <div className="pt-4 border-t border-slate-100">
+                  <label className="block text-xs font-black text-rose-600 uppercase tracking-widest mb-3 flex items-center gap-2">
+                    <ShieldCheck size={14} />
+                    Checklist Legal (Documentación Interna)
+                  </label>
+                  <div className="grid grid-cols-1 gap-2">
+                    <label className="flex items-center gap-3 p-3 bg-slate-50 rounded-xl cursor-pointer hover:bg-slate-100 transition-all border border-transparent hover:border-slate-200">
+                      <input 
+                        type="checkbox" 
+                        className="w-5 h-5 rounded-lg border-slate-300 text-rose-600 focus:ring-rose-500 cursor-pointer"
+                        checked={newMember.has_signed_waiver}
+                        onChange={e => setNewMember({...newMember, has_signed_waiver: e.target.checked})}
+                      />
+                      <span className="text-sm font-bold text-slate-700">Carta Responsiva Firmada</span>
+                    </label>
+                    <label className="flex items-center gap-3 p-3 bg-slate-50 rounded-xl cursor-pointer hover:bg-slate-100 transition-all border border-transparent hover:border-slate-200">
+                      <input 
+                        type="checkbox" 
+                        className="w-5 h-5 rounded-lg border-slate-300 text-rose-600 focus:ring-rose-500 cursor-pointer"
+                        checked={newMember.has_image_use_consent}
+                        onChange={e => setNewMember({...newMember, has_image_use_consent: e.target.checked})}
+                      />
+                      <span className="text-sm font-bold text-slate-700">Consentimiento de Uso de Imagen</span>
+                    </label>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">Notas Internas / Médicas</label>
+                  <textarea 
+                    placeholder="Ej: Lesión en rodilla, requiere atención especial..."
+                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-rose-500/10 outline-none text-sm min-h-[80px] resize-none"
+                    value={newMember.internal_notes}
+                    onChange={e => setNewMember({...newMember, internal_notes: e.target.value})}
+                  />
+                </div>
+
                 {errorMsg && (
                   <div className="bg-rose-50 text-rose-600 p-3 rounded-xl text-sm flex items-center gap-2">
                     <AlertCircle size={16} />

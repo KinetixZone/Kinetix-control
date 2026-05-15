@@ -7,6 +7,9 @@ export interface Member {
   created_at?: string;
   last_expiry?: string | null;
   service_type?: 'gym' | 'personalized' | 'nutrition' | 'personalized_nutrition' | 'gym_nutrition';
+  has_signed_waiver?: boolean;
+  has_image_use_consent?: boolean;
+  internal_notes?: string;
 }
 
 export interface Payment {
