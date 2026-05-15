@@ -606,6 +606,21 @@ export default function App() {
     setShowAddPayment(true);
   };
 
+  const handleToggleCommissionPaid = async (id: number, status: boolean) => {
+    if (currentRole !== 'Leslie' && currentRole !== 'Jorge') return;
+    try {
+      const { error } = await supabase
+        .from('payments')
+        .update({ commission_paid: status })
+        .eq('id', id);
+      if (error) throw error;
+      fetchData();
+      addToast(status ? 'Comisión marcada como pagada' : 'Comisión marcada como pendiente');
+    } catch (err) {
+      console.error('Error toggling commission:', err);
+    }
+  };
+
   const handleDeleteSale = async (id: number) => {
     confirmAction(
       '¿Eliminar Venta?',
@@ -2152,10 +2167,10 @@ export default function App() {
                               <p className="text-xs text-slate-400 font-medium">{m.phone || 'Sin teléfono'}</p>
                               {m.service_type && (
                                 <span className={`text-[8px] font-black uppercase tracking-tighter px-1 rounded ${
-                                  m.service_type === 'personalized' ? 'bg-blue-50 text-blue-600' : 
+                                  m.service_type === 'personalized' ? 'bg-amber-50 text-amber-600' : 
                                   m.service_type === 'nutrition' ? 'bg-emerald-50 text-emerald-600' :
                                   m.service_type === 'personalized_nutrition' || m.service_type === 'gym_nutrition' ? 'bg-indigo-50 text-indigo-600' :
-                                  'bg-slate-100 text-slate-500'
+                                  'bg-blue-50 text-blue-600'
                                 }`}>
                                   {m.service_type === 'gym' ? 'Kinetix' : 
                                    m.service_type === 'personalized' ? 'Pers.' : 
@@ -2241,7 +2256,7 @@ export default function App() {
                             <div className="font-medium text-slate-900">{m.name}</div>
                             {m.service_type && m.service_type !== 'gym' && (
                               <span className={`text-[8px] font-black uppercase tracking-tighter px-1.5 py-0.5 rounded ${
-                                m.service_type === 'personalized' ? 'bg-blue-50 text-blue-600' : 
+                                m.service_type === 'personalized' ? 'bg-amber-50 text-amber-600' : 
                                 m.service_type === 'nutrition' ? 'bg-emerald-50 text-emerald-600' :
                                 'bg-indigo-50 text-indigo-600'
                               }`}>
@@ -2434,19 +2449,19 @@ export default function App() {
                         </div>
                         <div>
                           <h4 className="font-bold text-slate-900">{p.member_name}</h4>
-                          {p.category && p.category !== 'gym' && (
-                            <div className="flex gap-1 mb-1">
-                              <span className={`text-[8px] font-black uppercase tracking-tighter px-1 rounded ${
-                                p.category === 'personalized' ? 'bg-blue-50 text-blue-600' : 
-                                p.category === 'nutrition' ? 'bg-emerald-50 text-emerald-600' :
-                                'bg-indigo-50 text-indigo-600'
-                              }`}>
-                                {p.category === 'personalized' ? 'Personalizado' : 
-                                 p.category === 'nutrition' ? 'Sólo Nutri' : 
-                                 p.category === 'personalized_nutrition' ? 'Jorge + Nutri' : 'Kinetix + Nutri'}
-                              </span>
-                            </div>
-                          )}
+                              {p.category && p.category !== 'gym' && (
+                                <div className="flex gap-1 mb-1">
+                                  <span className={`text-[8px] font-black uppercase tracking-tighter px-1 rounded ${
+                                    p.category === 'personalized' ? 'bg-amber-50 text-amber-600' : 
+                                    p.category === 'nutrition' ? 'bg-emerald-50 text-emerald-600' :
+                                    p.category === 'personalized_nutrition' ? 'bg-indigo-50 text-indigo-600' : 'bg-blue-50 text-blue-600'
+                                  }`}>
+                                    {p.category === 'personalized' ? 'Personalizado' : 
+                                     p.category === 'nutrition' ? 'Sólo Nutri' : 
+                                     p.category === 'personalized_nutrition' ? 'Jorge + Nutri' : 'Kinetix + Nutri'}
+                                  </span>
+                                </div>
+                              )}
                           <p className="text-xs text-slate-400">
                             {(() => {
                               if (!p.payment_date) return 'Fecha desconocida';
@@ -2541,9 +2556,9 @@ export default function App() {
                             <div>{p.member_name}</div>
                             {p.category && p.category !== 'gym' && (
                               <div className={`text-[9px] font-black uppercase tracking-tighter inline-block px-1.5 py-0.5 rounded ${
-                                p.category === 'personalized' ? 'bg-blue-50 text-blue-600' : 
+                                p.category === 'personalized' ? 'bg-amber-50 text-amber-600' : 
                                 p.category === 'nutrition' ? 'bg-emerald-50 text-emerald-600' :
-                                'bg-indigo-50 text-indigo-600'
+                                p.category === 'personalized_nutrition' ? 'bg-indigo-50 text-indigo-600' : 'bg-blue-50 text-blue-600'
                               }`}>
                                 {p.category === 'personalized' ? 'Personalizado' : 
                                  p.category === 'nutrition' ? 'Solo Nutri' : 
