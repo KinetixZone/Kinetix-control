@@ -1696,14 +1696,6 @@ export default function App() {
               <span className="font-medium">Usuarios</span>
             </button>
           )}
-
-          <button 
-            onClick={() => { setActiveTab('inventory'); setIsMobileMenuOpen(false); }}
-            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'inventory' ? 'bg-blue-50 text-blue-600' : 'text-slate-500 hover:bg-slate-50'}`}
-          >
-            <ShoppingBag size={20} />
-            <span className="font-medium">Inventario</span>
-          </button>
         </div>
 
         <div className="mt-auto pt-6 border-t border-slate-100">
