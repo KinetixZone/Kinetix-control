@@ -78,7 +78,7 @@ class ErrorBoundary extends React.Component<{children: React.ReactNode}, {hasErr
         </div>
       );
     }
-    return this.props.children;
+    return (this as any).props.children;
   }
 }
 
@@ -3476,7 +3476,7 @@ export default function App() {
                 <div>
                   <h3 className="text-3xl font-black mb-2 flex items-center gap-3">
                     <ShieldCheck size={32} />
-                    Entrenamientos de Jorge
+                    Entrenamientos Personalizados de Jorge <span className="text-amber-200">(Team JG)</span>
                   </h3>
                   <p className="text-amber-50/80 font-medium max-w-md">
                     Gestiona los alumnos personalizados y la contabilidad exclusiva de este servicio.
