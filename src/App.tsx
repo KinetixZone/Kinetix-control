@@ -29,6 +29,7 @@ import {
   Edit,
   Info,
   FileText,
+  Printer,
   Receipt,
   Wallet,
   Apple,
@@ -52,7 +53,7 @@ import {
 import * as XLSX from 'xlsx';
 import { supabase } from './lib/supabase';
 import { encryptData, decryptData } from './lib/encryption';
-import { Member, Payment, Expense, FinancialStats, InventoryItem } from './types';
+import { Member, Payment, Expense, FinancialStats, InventoryItem, Sale, Attendance, UserProfile } from './types';
 
 type Role = 'Leslie' | 'Jorge' | 'Staff';
 
@@ -103,6 +104,7 @@ export default function App() {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [showAddMember, setShowAddMember] = useState(false);
   const [showAddPayment, setShowAddPayment] = useState(false);
+  const [showReceipt, setShowReceipt] = useState<Payment | null>(null);
   const [databaseStatus, setDatabaseStatus] = useState<'online' | 'offline' | 'checking'>('checking');
   const [showAddExpense, setShowAddExpense] = useState(false);
   const [showAddInventory, setShowAddInventory] = useState(false);
@@ -831,6 +833,10 @@ export default function App() {
       { Concepto: 'Periodo', Monto: analyticsMonthFilter || analyticsYearFilter || 'Todo el tiempo' }
     ];
     handleExportExcel(dataToExport, `reporte_financiero_kinetix_${analyticsMonthFilter || analyticsYearFilter || 'general'}`);
+  };
+
+  const handlePrint = () => {
+    window.print();
   };
 
   const exportInventoryToExcel = () => {
@@ -1588,7 +1594,7 @@ export default function App() {
     <ErrorBoundary>
       <div className="min-h-screen bg-slate-50 text-slate-900 font-sans">
       {/* Mobile Header */}
-      <div className="lg:hidden bg-white border-b border-slate-100 p-4 sticky top-0 z-30 flex justify-between items-center h-16">
+      <div className="lg:hidden bg-white border-b border-slate-100 p-4 sticky top-0 z-30 flex justify-between items-center h-16 no-print">
         <button 
           onClick={() => { setActiveTab('dashboard'); setIsMobileMenuOpen(false); }}
           className="flex items-center gap-2 hover:opacity-80 transition-opacity"
@@ -1622,7 +1628,7 @@ export default function App() {
 
       {/* Sidebar - Desktop & Mobile Overlay */}
       <nav className={`
-        fixed left-0 top-0 h-[100dvh] w-64 bg-white border-r border-slate-100 p-6 flex flex-col z-40 transition-transform duration-300 ease-in-out
+        fixed left-0 top-0 h-[100dvh] w-64 bg-white border-r border-slate-100 p-6 flex flex-col z-40 transition-transform duration-300 ease-in-out no-print
         ${isMobileMenuOpen ? 'translate-x-0 shadow-2xl' : '-translate-x-full lg:translate-x-0'}
       `}>
         <div className="flex items-center justify-between mb-10">
@@ -1785,7 +1791,7 @@ export default function App() {
       </nav>
 
       {/* Main Content */}
-      <main className="lg:ml-64 p-4 md:p-8 min-h-[calc(100dvh-64px)] lg:min-h-screen relative">
+      <main className="lg:ml-64 p-4 md:p-8 min-h-[calc(100dvh-64px)] lg:min-h-screen relative no-print">
         <header className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
           <div>
             <h2 className="text-2xl md:text-3xl font-bold tracking-tight text-slate-900 uppercase">
@@ -2655,6 +2661,13 @@ export default function App() {
                     )}
                     <div className="flex gap-2 pt-2">
                       <button 
+                        onClick={() => setShowReceipt(p)}
+                        className="flex-1 bg-indigo-50 text-indigo-600 py-2 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all hover:bg-indigo-100"
+                      >
+                        <Receipt size={14} />
+                        Recibo
+                      </button>
+                      <button 
                         onClick={() => handleEditPayment(p)}
                         className="flex-1 bg-slate-50 text-slate-600 py-2 rounded-xl font-bold text-xs flex items-center justify-center gap-2"
                       >
@@ -2751,6 +2764,13 @@ export default function App() {
                           <td className="px-6 py-4 text-sm text-slate-600">{p.received_by}</td>
                           <td className="px-6 py-4 text-right">
                             <div className="flex gap-2 justify-end">
+                              <button 
+                                onClick={() => setShowReceipt(p)}
+                                className="text-indigo-400 hover:text-indigo-600 p-2 rounded-lg hover:bg-indigo-50 transition-all"
+                                title="Ver Recibo"
+                              >
+                                <Receipt size={16} />
+                              </button>
                               <button 
                                 onClick={() => handleEditPayment(p)}
                                 className="text-slate-400 hover:text-slate-600 p-2 rounded-lg hover:bg-slate-50 transition-all"
@@ -5015,9 +5035,114 @@ export default function App() {
             </motion.div>
           </div>
         )}
+
+        {showReceipt && (
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[70] flex items-center justify-center p-4 no-print">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="bg-white rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden flex flex-col max-h-[90vh]"
+            >
+              <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
+                <div className="flex items-center gap-2 text-indigo-600">
+                  <Receipt size={20} />
+                  <h3 className="font-bold">Recibo de Pago</h3>
+                </div>
+                <button 
+                  onClick={() => setShowReceipt(null)}
+                  className="p-2 hover:bg-slate-100 rounded-xl transition-all text-slate-400 hover:text-slate-600"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+
+              <div className="flex-1 overflow-y-auto custom-scrollbar">
+                <div id="receipt-modal-content" className="p-8 space-y-6 font-mono print-only-content">
+                  <div className="text-center space-y-1">
+                    <h2 className="text-xl font-black tracking-tighter text-slate-900">KINETIX FUNCTIONAL ZONE</h2>
+                    <p className="text-[10px] text-slate-500 uppercase tracking-widest text-center">Sucursal Matriz</p>
+                    <div className="w-12 h-0.5 bg-indigo-500 mx-auto mt-2 rounded-full opacity-30"></div>
+                  </div>
+
+                  <div className="space-y-4 pt-4 border-t border-dashed border-slate-200">
+                    <div className="flex justify-between text-xs">
+                      <span className="text-slate-400 font-bold uppercase">Folio:</span>
+                      <span className="font-bold text-slate-900">#{showReceipt.id.toString().padStart(6, '0')}</span>
+                    </div>
+                    <div className="flex justify-between text-xs">
+                      <span className="text-slate-400 font-bold uppercase">Fecha:</span>
+                      <span className="font-bold text-slate-900">{new Date(showReceipt.payment_date).toLocaleDateString()}</span>
+                    </div>
+                    <div className="flex justify-between text-xs">
+                      <span className="text-slate-400 font-bold uppercase">Recibió:</span>
+                      <span className="font-bold text-slate-900 uppercase">{showReceipt.received_by}</span>
+                    </div>
+                  </div>
+
+                  <div className="space-y-4 pt-4 border-t border-dashed border-slate-200">
+                    <div className="space-y-1">
+                      <div className="text-[10px] text-slate-400 uppercase font-black">Cliente</div>
+                      <div className="text-sm font-black text-slate-900 uppercase">{showReceipt.member_name}</div>
+                    </div>
+
+                    <div className="space-y-1">
+                      <div className="text-[10px] text-slate-400 uppercase font-black">Concepto</div>
+                      <div className="text-sm font-bold text-slate-900">
+                         {showReceipt.payment_type === 'monthly' ? 'PAGO DE MENSUALIDAD' : 'PAGO DE VISITA'} 
+                         {showReceipt.category && showReceipt.category !== 'gym' && ` (${showReceipt.category.toUpperCase()})`}
+                      </div>
+                      {showReceipt.expiry_date && (
+                        <div className="text-[10px] text-indigo-600 font-bold border border-indigo-100 bg-indigo-50 px-2 py-1 rounded inline-block mt-1">
+                          VIGENCIA HASTA: {new Date(showReceipt.expiry_date).toLocaleDateString()}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="pt-6 border-t border-dashed border-slate-200">
+                    <div className="bg-slate-50 p-4 rounded-2xl flex justify-between items-center">
+                      <div className="text-left">
+                        <span className="text-[10px] font-black text-slate-400 uppercase block mb-1">Total Pagado</span>
+                        <div className="text-2xl font-black text-emerald-600">${(showReceipt.amount || 0).toFixed(2)}</div>
+                      </div>
+                      <div className="text-right">
+                        <span className="text-[10px] font-black text-slate-400 uppercase block mb-1">Status</span>
+                        <div className="text-xs font-bold text-emerald-600 bg-emerald-50 px-2 py-1 rounded-lg">PAGADO</div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="text-center pt-6 space-y-4">
+                    <div className="space-y-1">
+                      <p className="text-[9px] text-slate-400 font-medium tracking-tight italic">"El esfuerzo de hoy es el éxito de mañana"</p>
+                      <p className="text-[10px] font-black text-slate-600 uppercase">KINETIX - TRANSFORMANDO VIDAS</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="p-6 bg-slate-50 border-t border-slate-100 flex gap-3 no-print">
+                <button 
+                  onClick={handlePrint}
+                  className="flex-1 bg-white border border-slate-200 text-slate-600 py-3 rounded-2xl font-bold text-sm flex items-center justify-center gap-2 hover:bg-slate-50 transition-all shadow-sm"
+                >
+                  <Printer size={18} />
+                  Imprimir
+                </button>
+                <button 
+                  onClick={() => setShowReceipt(null)}
+                  className="flex-1 bg-indigo-600 text-white py-3 rounded-2xl font-bold text-sm hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100"
+                >
+                  Cerrar
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
       </AnimatePresence>
       {/* Toasts */}
-      <div className="fixed bottom-6 right-6 z-[100] flex flex-col gap-3">
+      <div className="fixed bottom-6 right-6 z-[100] flex flex-col gap-3 no-print">
         <AnimatePresence>
           {toasts.map(toast => (
             <motion.div
