@@ -1611,6 +1611,17 @@ export default function App() {
               <span className="absolute right-4 top-1/2 -translate-y-1/2 w-2 h-2 bg-blue-500 rounded-full shadow-sm shadow-blue-200 animate-pulse"></span>
             )}
           </button>
+
+          {(currentRole === 'Leslie' || currentRole === 'Jorge') && (
+            <button 
+              onClick={() => { setActiveTab('analytics'); setIsMobileMenuOpen(false); }}
+              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'analytics' ? 'bg-blue-50 text-blue-600' : 'text-slate-500 hover:bg-slate-50'}`}
+            >
+              <BarChart3 size={20} />
+              <span className="font-medium">Reportes</span>
+            </button>
+          )}
+
           <button 
             onClick={() => { setActiveTab('members'); setIsMobileMenuOpen(false); }}
             className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all relative ${activeTab === 'members' ? 'bg-blue-50 text-blue-600' : 'text-slate-500 hover:bg-slate-50'}`}
@@ -1637,13 +1648,6 @@ export default function App() {
               >
                 <TrendingDown size={20} />
                 <span className="font-medium">Gastos</span>
-              </button>
-              <button 
-                onClick={() => { setActiveTab('analytics'); setIsMobileMenuOpen(false); }}
-                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'analytics' ? 'bg-blue-50 text-blue-600' : 'text-slate-500 hover:bg-slate-50'}`}
-              >
-                <BarChart3 size={20} />
-                <span className="font-medium">Reportes</span>
               </button>
             </>
           )}
