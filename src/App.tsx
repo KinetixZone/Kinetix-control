@@ -30,7 +30,8 @@ import {
   FileText,
   Receipt,
   Wallet,
-  Apple
+  Apple,
+  Check as CheckIcon
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
@@ -55,10 +56,8 @@ type Role = 'Leslie' | 'Jorge' | 'Staff';
 
 // Error Boundary for mobile safety
 class ErrorBoundary extends React.Component<{children: React.ReactNode}, {hasError: boolean}> {
-  constructor(props: {children: React.ReactNode}) {
-    super(props);
-    this.state = { hasError: false };
-  }
+  state = { hasError: false };
+
   static getDerivedStateFromError() { return { hasError: true }; }
   componentDidCatch(error: any, errorInfo: any) { console.error("Kinetix App Error:", error, errorInfo); }
   render() {
@@ -351,7 +350,7 @@ export default function App() {
       if (curr.category === 'personalized_nutrition' || curr.category === 'gym_nutrition') {
         return curr.commission_paid ? acc + (Number(curr.nutritionist_commission) || 0) : acc;
       }
-      return acc + (Number(curr.amount) || 0);
+      return curr.commission_paid ? acc + (Number(curr.amount) || 0) : acc;
     }, 0);
 
     const cost = nExpenses.reduce((acc, curr) => acc + (Number(curr.amount) || 0), 0);
@@ -3806,7 +3805,7 @@ export default function App() {
                                     p.commission_paid ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600 hover:bg-rose-100'
                                   }`}
                                 >
-                                  {p.commission_paid ? <Check size={8} /> : null}
+                                  {p.commission_paid ? <CheckIcon size={8} /> : null}
                                   {p.commission_paid ? 'Pagado' : 'Marcar Pago'}
                                 </button>
                               )}
