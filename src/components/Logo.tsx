@@ -16,7 +16,7 @@ export const Logo = ({ size = 24, className = "" }: LogoProps) => {
           src="/logo.png" 
           alt="Kinetix Logo" 
           className="object-contain"
-          style={{ height: size * 1.5 }}
+          style={{ height: size * 2.2, minWidth: size * 2 }}
           onError={() => setImgError(true)}
         />
       ) : (

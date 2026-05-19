@@ -1583,6 +1583,10 @@ export default function App() {
         setIsMobileMenuOpen={setIsMobileMenuOpen}
         currentRole={currentRole}
         onLogout={handleLogout}
+        birthdayAlertsCount={birthdayAlerts.length}
+        paymentAlertsCount={paymentAlerts.length}
+        databaseStatus={databaseStatus}
+        onChangePin={() => setShowChangePin(true)}
       />
 
       {/* Main Content */}
