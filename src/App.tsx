@@ -225,6 +225,8 @@ export default function App() {
     }, 3000);
   };
 
+  const addToast = onAddToast;
+
   const confirmAction = (title: string, message: string, onConfirm: () => void) => {
     setConfirmation({ isOpen: true, title, message, onConfirm });
   };
