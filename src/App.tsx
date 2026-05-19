@@ -55,68 +55,14 @@ import {
 import * as XLSX from 'xlsx';
 import { supabase } from './lib/supabase';
 import { encryptData, decryptData } from './lib/encryption';
+import { isExpired, getStatusColor } from './lib/utils';
+import { Logo } from './components/Logo';
+import { ReceiptModal } from './components/ReceiptModal';
+import { Sidebar } from './components/Sidebar';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { Member, Payment, Expense, FinancialStats, InventoryItem, Sale, Attendance, UserProfile } from './types';
 
-type Role = 'Leslie' | 'Jorge' | 'Staff';
-
-// Error Boundary for mobile safety
-class ErrorBoundary extends React.Component<{children: React.ReactNode}, {hasError: boolean}> {
-  state = { hasError: false };
-
-  static getDerivedStateFromError() { return { hasError: true }; }
-  componentDidCatch(error: any, errorInfo: any) { console.error("Kinetix App Error:", error, errorInfo); }
-  render() {
-    if (this.state.hasError) {
-      return (
-        <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-8 text-center text-slate-900">
-          <div className="w-20 h-20 bg-rose-100 text-rose-600 rounded-3xl flex items-center justify-center mb-6 shadow-lg">
-            <AlertCircle size={40} />
-          </div>
-          <h1 className="text-2xl font-bold mb-2">Algo salió mal</h1>
-          <p className="text-slate-500 mb-8 max-w-sm">La aplicación se detuvo inesperadamente. Por favor intenta recargar la página.</p>
-          <button 
-            onClick={() => window.location.reload()}
-            className="bg-indigo-600 text-white px-8 py-4 rounded-2xl font-bold hover:bg-indigo-700 transition-all shadow-lg"
-          >
-            Recargar Aplicación
-          </button>
-        </div>
-      );
-    }
-    return (this as any).props.children;
-  }
-}
-
-const Logo = ({ size = 24, className = "" }: { size?: number, className?: string }) => {
-  const [imgError, setImgError] = React.useState(false);
-  
-  return (
-    <div className={`flex items-center gap-2 ${className}`}>
-      {!imgError ? (
-        <img 
-          src="/logo.png" 
-          alt="Kinetix Logo" 
-          className="object-contain"
-          style={{ height: size * 1.5 }}
-          onError={() => setImgError(true)}
-        />
-      ) : (
-        <>
-          <div className="relative">
-            <div className="absolute -inset-1 bg-indigo-600 rounded-lg blur-sm opacity-20 animate-pulse"></div>
-            <div className="relative bg-gradient-to-br from-indigo-600 to-emerald-500 p-2 rounded-xl text-white shadow-lg shadow-indigo-100">
-              <Activity size={size} strokeWidth={3} />
-            </div>
-          </div>
-          <div className="flex flex-col -space-y-1 text-left">
-            <span className="text-xl font-black italic tracking-tighter text-slate-900 leading-none">KINETIX</span>
-            <span className="text-[8px] font-black uppercase tracking-[0.2em] text-emerald-600 leading-none pl-0.5">Functional Zone</span>
-          </div>
-        </>
-      )}
-    </div>
-  );
-};
+// Role type
 
 export default function App() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
@@ -271,7 +217,7 @@ export default function App() {
     setIsLoggedIn(false);
   };
 
-  const addToast = (message: string, type: 'success' | 'error' | 'info' = 'success') => {
+  const onAddToast = (message: string, type: 'success' | 'error' | 'info' = 'success') => {
     const id = Math.random().toString(36).substring(2, 9);
     setToasts(prev => [...prev, { id, message, type }]);
     setTimeout(() => {
@@ -1447,7 +1393,7 @@ export default function App() {
 
       if (updateError) throw updateError;
 
-      addToast(`PIN de ${targetUsername} actualizado`);
+      onAddToast(`PIN de ${targetUsername} actualizado`);
       setPinForm({ currentPin: '', newPin: '', confirmPin: '' });
       setTimeout(() => {
         setShowChangePin(false);
@@ -1458,24 +1404,6 @@ export default function App() {
       setPinStatus({ message: error.message || 'Error al actualizar PIN', type: 'error' });
     } finally {
       setIsSubmitting(false);
-    }
-  };
-
-  const isExpired = (dateStr: string | null) => {
-    if (!dateStr) return true;
-    try {
-      const d = new Date(dateStr);
-      if (isNaN(d.getTime())) return true;
-      
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      
-      const expiry = new Date(d);
-      expiry.setHours(0, 0, 0, 0);
-      
-      return expiry.getTime() < today.getTime();
-    } catch (e) {
-      return true;
     }
   };
 
@@ -1515,12 +1443,6 @@ export default function App() {
       expired: members.filter(m => isExpired(m.last_expiry || null)).length
     };
   }, [members, memberMonthFilter]);
-
-  const getStatusColor = (expiry: string | null) => {
-    if (!expiry) return 'bg-gray-100 text-gray-500';
-    if (isExpired(expiry)) return 'bg-red-100 text-red-600';
-    return 'bg-green-100 text-green-600';
-  };
 
   const filteredPayments = payments.filter(p => {
     const matchesSearch = (p.member_name?.toLowerCase() || '').includes(paymentSearchTerm.toLowerCase());
@@ -1654,162 +1576,14 @@ export default function App() {
       </AnimatePresence>
 
       {/* Sidebar - Desktop & Mobile Overlay */}
-      <nav className={`
-        fixed left-0 top-0 h-[100dvh] w-64 bg-white border-r border-slate-100 p-6 flex flex-col z-40 transition-transform duration-300 ease-in-out no-print
-        ${isMobileMenuOpen ? 'translate-x-0 shadow-2xl' : '-translate-x-full lg:translate-x-0'}
-      `}>
-        <div className="flex items-center justify-between mb-10">
-          <button 
-            onClick={() => { setActiveTab('dashboard'); setIsMobileMenuOpen(false); }}
-            className="flex items-center gap-3 hover:opacity-80 transition-opacity"
-          >
-            <Logo size={24} />
-          </button>
-          <button className="lg:hidden" onClick={() => setIsMobileMenuOpen(false)}>
-            <X size={20} className="text-slate-400" />
-          </button>
-        </div>
-
-        <div className="space-y-1.5 flex-1 overflow-y-auto custom-scrollbar -mr-2 pr-2 pb-10">
-          <button 
-            onClick={() => { setActiveTab('dashboard'); setIsMobileMenuOpen(false); }}
-            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all relative ${activeTab === 'dashboard' ? 'bg-blue-50 text-blue-600' : 'text-slate-500 hover:bg-slate-50'}`}
-          >
-            <Clock size={20} />
-            <span className="font-medium">Dashboard</span>
-            {birthdayAlerts.length > 0 && (
-              <span className="absolute right-4 top-1/2 -translate-y-1/2 w-2 h-2 bg-blue-500 rounded-full shadow-sm shadow-blue-200 animate-pulse"></span>
-            )}
-          </button>
-
-          {(currentRole === 'Leslie' || currentRole === 'Jorge') && (
-            <button 
-              onClick={() => { setActiveTab('analytics'); setIsMobileMenuOpen(false); }}
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'analytics' ? 'bg-blue-50 text-blue-600' : 'text-slate-500 hover:bg-slate-50'}`}
-            >
-              <BarChart3 size={20} />
-              <span className="font-medium">Reportes</span>
-            </button>
-          )}
-
-          <button 
-            onClick={() => { setActiveTab('members'); setIsMobileMenuOpen(false); }}
-            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all relative ${activeTab === 'members' ? 'bg-blue-50 text-blue-600' : 'text-slate-500 hover:bg-slate-50'}`}
-          >
-            <Users size={20} />
-            <span className="font-medium">Miembros</span>
-            {paymentAlerts.length > 0 && (
-              <span className="absolute right-4 top-1/2 -translate-y-1/2 w-2 h-2 bg-rose-600 rounded-full shadow-sm shadow-rose-200"></span>
-            )}
-          </button>
-          <button 
-            onClick={() => { setActiveTab('payments'); setIsMobileMenuOpen(false); }}
-            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'payments' ? 'bg-blue-50 text-blue-600' : 'text-slate-500 hover:bg-slate-50'}`}
-          >
-            <CreditCard size={20} />
-            <span className="font-medium">Pagos</span>
-          </button>
-          
-          {(currentRole === 'Leslie' || currentRole === 'Jorge') && (
-            <>
-              <button 
-                onClick={() => { setActiveTab('expenses'); setIsMobileMenuOpen(false); }}
-                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'expenses' ? 'bg-blue-50 text-blue-600' : 'text-slate-500 hover:bg-slate-50'}`}
-              >
-                <TrendingDown size={20} />
-                <span className="font-medium">Gastos</span>
-              </button>
-            </>
-          )}
-
-          <button 
-            onClick={() => { setActiveTab('attendance'); setIsMobileMenuOpen(false); }}
-            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'attendance' ? 'bg-blue-50 text-blue-600' : 'text-slate-500 hover:bg-slate-50'}`}
-          >
-            <Fingerprint size={20} />
-            <span className="font-medium">Asistencia</span>
-          </button>
-
-          <button 
-            onClick={() => { setActiveTab('personalized'); setIsMobileMenuOpen(false); }}
-            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'personalized' ? 'bg-amber-50 text-amber-600' : 'text-slate-500 hover:bg-slate-50'}`}
-          >
-            <ShieldCheck size={20} className={activeTab === 'personalized' ? 'text-amber-500' : ''} />
-            <span className="font-medium">Personalizados</span>
-          </button>
-
-          <button 
-            onClick={() => { setActiveTab('nutrition'); setIsMobileMenuOpen(false); }}
-            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'nutrition' ? 'bg-emerald-50 text-emerald-600' : 'text-slate-500 hover:bg-slate-50'}`}
-          >
-            <Apple size={20} className={activeTab === 'nutrition' ? 'text-emerald-500' : ''} />
-            <span className="font-medium">Nutrición</span>
-          </button>
-          <button 
-            onClick={() => { setActiveTab('sales'); setIsMobileMenuOpen(false); }}
-            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'sales' ? 'bg-rose-50 text-rose-600 shadow-sm' : 'text-slate-500 hover:bg-slate-50'}`}
-          >
-            <ShoppingBag size={20} />
-            <span className="font-medium">Ventas</span>
-          </button>
-
-          <button 
-            onClick={() => { setActiveTab('inventory'); setIsMobileMenuOpen(false); }}
-            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'inventory' ? 'bg-rose-50 text-rose-600 shadow-sm' : 'text-slate-500 hover:bg-slate-50'}`}
-          >
-            <Box size={20} />
-            <span className="font-medium">Inventario</span>
-          </button>
-          
-          {(currentRole === 'Leslie' || currentRole === 'Jorge') && (
-            <button 
-              onClick={() => { setActiveTab('users'); setIsMobileMenuOpen(false); }}
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'users' ? 'bg-blue-50 text-blue-600' : 'text-slate-500 hover:bg-slate-50'}`}
-            >
-              <User size={20} />
-              <span className="font-medium">Usuarios</span>
-            </button>
-          )}
-        </div>
-
-        <div className="mt-auto pt-6 border-t border-slate-100">
-          {(currentRole === 'Leslie' || currentRole === 'Jorge') && (
-            <button 
-              onClick={() => { setShowChangePin(true); setIsMobileMenuOpen(false); }}
-              className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-slate-500 hover:bg-slate-50 transition-all mb-2"
-            >
-              <Lock size={20} />
-              <span className="font-medium">Cambiar PIN</span>
-            </button>
-          )}
-          <div className="p-4 bg-slate-50 rounded-2xl">
-            <div className="flex items-center gap-2 mb-3 px-1">
-              <div className={`w-2 h-2 rounded-full ${databaseStatus === 'online' ? 'bg-emerald-500 shadow-[0_0_8px_#10b981]' : databaseStatus === 'offline' ? 'bg-rose-500 shadow-[0_0_8px_#f43f5e]' : 'bg-amber-500 animate-pulse'}`}></div>
-              <span className="text-[9px] uppercase tracking-widest font-black text-slate-400">
-                DB: {databaseStatus === 'online' ? 'Conectada' : databaseStatus === 'offline' ? 'PAUSADA/DESCONECTADA' : 'Verificando...'}
-              </span>
-            </div>
-            <div className="flex items-center gap-3 mb-3">
-              <div className="w-8 h-8 bg-slate-200 rounded-full flex items-center justify-center text-slate-600">
-                <User size={16} />
-              </div>
-              <div>
-                <div className="text-sm font-bold">{currentRole}</div>
-                <div className="text-[10px] text-slate-400 uppercase tracking-wider font-semibold">
-                  {currentRole === 'Leslie' ? 'Super Admin' : currentRole === 'Jorge' ? 'Admin' : 'Staff'}
-                </div>
-              </div>
-            </div>
-            <button 
-              onClick={handleLogout}
-              className="w-full flex items-center justify-center gap-2 text-xs bg-white border border-slate-200 rounded-lg p-2 hover:bg-rose-50 hover:text-rose-600 hover:border-rose-100 transition-all font-bold"
-            >
-              <LogOut size={14} />
-              Cerrar Sesión
-            </button>
-          </div>
-        </div>
-      </nav>
+      <Sidebar 
+        activeTab={activeTab}
+        setActiveTab={setActiveTab}
+        isMobileMenuOpen={isMobileMenuOpen}
+        setIsMobileMenuOpen={setIsMobileMenuOpen}
+        currentRole={currentRole}
+        onLogout={handleLogout}
+      />
 
       {/* Main Content */}
       <main className="lg:ml-64 p-4 md:p-8 min-h-[calc(100dvh-64px)] lg:min-h-screen relative no-print">
@@ -5058,110 +4832,11 @@ export default function App() {
         )}
 
         {showReceipt && (
-          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[70] flex items-center justify-center p-4">
-            <motion.div 
-              initial={{ opacity: 0, scale: 0.9, y: 20 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.9, y: 20 }}
-              className="bg-white rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden flex flex-col max-h-[90vh]"
-            >
-              <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
-                <div className="flex items-center gap-2 text-indigo-600">
-                  <Receipt size={20} />
-                  <h3 className="font-bold">Recibo de Pago</h3>
-                </div>
-                <button 
-                  onClick={() => setShowReceipt(null)}
-                  className="p-2 hover:bg-slate-100 rounded-xl transition-all text-slate-400 hover:text-slate-600"
-                >
-                  <X size={20} />
-                </button>
-              </div>
-
-              <div className="flex-1 overflow-y-auto custom-scrollbar">
-                <div id="receipt-modal-content" className="p-8 space-y-6 font-mono print-only-content">
-                  <div className="text-center space-y-4">
-                    <Logo className="justify-center" size={28} />
-                    <div className="space-y-1">
-                      <p className="text-[10px] text-slate-500 uppercase tracking-widest text-center">Sucursal Matriz</p>
-                      <div className="w-12 h-0.5 bg-indigo-500 mx-auto mt-2 rounded-full opacity-30"></div>
-                    </div>
-                  </div>
-
-                  <div className="space-y-4 pt-4 border-t border-dashed border-slate-200">
-                    <div className="flex justify-between text-xs">
-                      <span className="text-slate-400 font-bold uppercase">Folio:</span>
-                      <span className="font-bold text-slate-900">#{showReceipt.id.toString().padStart(6, '0')}</span>
-                    </div>
-                    <div className="flex justify-between text-xs">
-                      <span className="text-slate-400 font-bold uppercase">Fecha:</span>
-                      <span className="font-bold text-slate-900">{new Date(showReceipt.payment_date).toLocaleDateString()}</span>
-                    </div>
-                    <div className="flex justify-between text-xs">
-                      <span className="text-slate-400 font-bold uppercase">Recibió:</span>
-                      <span className="font-bold text-slate-900 uppercase">{showReceipt.received_by}</span>
-                    </div>
-                  </div>
-
-                  <div className="space-y-4 pt-4 border-t border-dashed border-slate-200">
-                    <div className="space-y-1">
-                      <div className="text-[10px] text-slate-400 uppercase font-black">Cliente</div>
-                      <div className="text-sm font-black text-slate-900 uppercase">{showReceipt.member_name}</div>
-                    </div>
-
-                    <div className="space-y-1">
-                      <div className="text-[10px] text-slate-400 uppercase font-black">Concepto</div>
-                      <div className="text-sm font-bold text-slate-900">
-                         {showReceipt.payment_type === 'monthly' ? 'PAGO DE MENSUALIDAD' : 'PAGO DE VISITA'} 
-                         {showReceipt.category && showReceipt.category !== 'gym' && ` (${showReceipt.category.toUpperCase()})`}
-                      </div>
-                      {showReceipt.expiry_date && (
-                        <div className="text-[10px] text-indigo-600 font-bold border border-indigo-100 bg-indigo-50 px-2 py-1 rounded inline-block mt-1">
-                          VIGENCIA HASTA: {new Date(showReceipt.expiry_date).toLocaleDateString()}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="pt-6 border-t border-dashed border-slate-200">
-                    <div className="bg-slate-50 p-4 rounded-2xl flex justify-between items-center">
-                      <div className="text-left">
-                        <span className="text-[10px] font-black text-slate-400 uppercase block mb-1">Total Pagado</span>
-                        <div className="text-2xl font-black text-emerald-600">${(showReceipt.amount || 0).toFixed(2)}</div>
-                      </div>
-                      <div className="text-right">
-                        <span className="text-[10px] font-black text-slate-400 uppercase block mb-1">Status</span>
-                        <div className="text-xs font-bold text-emerald-600 bg-emerald-50 px-2 py-1 rounded-lg">PAGADO</div>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="text-center pt-6 space-y-4">
-                    <div className="space-y-1">
-                      <p className="text-[9px] text-slate-400 font-medium tracking-tight italic">"El esfuerzo de hoy es el éxito de mañana"</p>
-                      <p className="text-[10px] font-black text-slate-600 uppercase">KINETIX - TRANSFORMANDO VIDAS</p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <div className="p-6 bg-slate-50 border-t border-slate-100 flex gap-3 no-print">
-                <button 
-                  onClick={handlePrint}
-                  className="flex-1 bg-white border border-slate-200 text-slate-600 py-3 rounded-2xl font-bold text-sm flex items-center justify-center gap-2 hover:bg-slate-50 transition-all shadow-sm"
-                >
-                  <Printer size={18} />
-                  Imprimir
-                </button>
-                <button 
-                  onClick={() => setShowReceipt(null)}
-                  className="flex-1 bg-indigo-600 text-white py-3 rounded-2xl font-bold text-sm hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100"
-                >
-                  Cerrar
-                </button>
-              </div>
-            </motion.div>
-          </div>
+          <ReceiptModal 
+            payment={showReceipt} 
+            onClose={() => setShowReceipt(null)} 
+            onPrint={handlePrint}
+          />
         )}
       </AnimatePresence>
       {/* Toasts */}
