@@ -44,6 +44,17 @@ export interface SupplementMetadata {
   consumptions: string[]; // list of date strings: ["2026-05-29", "2026-05-30"]
 }
 
+export interface FlavorBag {
+  id: string;
+  type: 'protein' | 'creatine';
+  flavor: string;
+  servingsLeft: number;
+  totalServings: number;
+  totalConsumed: number;
+  isOpened: boolean;
+  createdAt: string;
+}
+
 // Helpers for reading/writing supplements metadata to the member's internal_notes field
 export const parseSupplementMetadata = (notes: string | null): SupplementMetadata | null => {
   if (!notes) return null;
@@ -116,30 +127,64 @@ export const SupplementsTab = ({
     addToast('Precios y configuración actualizados correctamente');
   };
 
-  // State to track portions in currently OPEN bags (local persistence synced)
-  const [openBags, setOpenBags] = useState(() => {
-    const saved = localStorage.getItem('kinetix_supplements_open_bags_v1');
+  // 2. Discover standard bags in database inventory
+  const proteinItem = useMemo(() => inventory.find(i => i.name === 'Bolsa de Proteína'), [inventory]);
+  const creatineItem = useMemo(() => inventory.find(i => i.name === 'Bolsa de Creatina'), [inventory]);
+
+  // State to track multiple open bags of various flavors
+  const [flavorBags, setFlavorBags] = useState<FlavorBag[]>(() => {
+    const saved = localStorage.getItem('kinetix_supplements_flavor_bags_v2');
     if (saved) {
       try {
         return JSON.parse(saved);
       } catch (e) {}
     }
-    return {
-      proteinServingsLeft: 30,
-      creatineServingsLeft: 30,
-      totalProteinServingsConsumed: 0,
-      totalCreatineServingsConsumed: 0
-    };
+    
+    // Fallback/Migration: check if old openBags exists
+    const oldBagsSaved = localStorage.getItem('kinetix_supplements_open_bags_v1');
+    let oldBags = { proteinServingsLeft: 30, creatineServingsLeft: 30, totalProteinServingsConsumed: 0, totalCreatineServingsConsumed: 0 };
+    if (oldBagsSaved) {
+      try { oldBags = JSON.parse(oldBagsSaved); } catch (e) {}
+    }
+
+    return [
+      {
+        id: 'default_protein_choco',
+        type: 'protein',
+        flavor: 'Chocolate 🍫',
+        servingsLeft: oldBags.proteinServingsLeft,
+        totalServings: settings.servingsPerProteinBag || 30,
+        totalConsumed: oldBags.totalProteinServingsConsumed || 0,
+        isOpened: true,
+        createdAt: new Date().toISOString()
+      },
+      {
+        id: 'default_creatine_natural',
+        type: 'creatine',
+        flavor: 'Uva 🍇',
+        servingsLeft: oldBags.creatineServingsLeft,
+        totalServings: settings.servingsPerCreatineBag || 30,
+        totalConsumed: oldBags.totalCreatineServingsConsumed || 0,
+        isOpened: true,
+        createdAt: new Date().toISOString()
+      }
+    ];
   });
 
-  const saveOpenBags = (newBags: typeof openBags) => {
-    setOpenBags(newBags);
-    localStorage.setItem('kinetix_supplements_open_bags_v1', JSON.stringify(newBags));
+  const saveFlavorBags = (newBags: FlavorBag[]) => {
+    setFlavorBags(newBags);
+    localStorage.setItem('kinetix_supplements_flavor_bags_v2', JSON.stringify(newBags));
   };
 
-  // 2. Discover standard bags in database inventory
-  const proteinItem = useMemo(() => inventory.find(i => i.name === 'Bolsa de Proteína'), [inventory]);
-  const creatineItem = useMemo(() => inventory.find(i => i.name === 'Bolsa de Creatina'), [inventory]);
+  const getDefaultBagId = (type: 'protein' | 'creatine'): string => {
+    const openOfThisType = flavorBags.filter(b => b.type === type && b.isOpened && b.servingsLeft > 0);
+    if (openOfThisType.length > 0) return openOfThisType[0].id;
+    const anyOfThisType = flavorBags.filter(b => b.type === type);
+    return anyOfThisType.length > 0 ? anyOfThisType[0].id : '';
+  };
+
+  // State to track flavor selection on the active consumer table
+  const [selectedBagsForMembers, setSelectedBagsForMembers] = useState<Record<string, { protein?: string; creatine?: string }>>({});
 
   // Ensure items exist
   const handleInitializeBagsInDatabase = async () => {
@@ -172,62 +217,79 @@ export const SupplementsTab = ({
     }
   };
 
-  // Daily consumption deduction handler
-  const deductPortion = async (type: 'protein' | 'creatine' | 'combo') => {
-    const nextBags = { ...openBags };
-    let shouldSyncProteinStock = false;
-    let shouldSyncCreatineStock = false;
+  // Deduct 1 scoop from specific flavor bag
+  const deductPortionFromBag = async (bagId: string) => {
+    const nextBags = flavorBags.map(bag => {
+      if (bag.id === bagId) {
+        const servingsLeft = Math.max(0, bag.servingsLeft - 1);
+        const totalConsumed = bag.totalConsumed + 1;
+        return { ...bag, servingsLeft, totalConsumed };
+      }
+      return bag;
+    });
 
-    if (type === 'protein' || type === 'combo') {
-      nextBags.proteinServingsLeft -= 1;
-      nextBags.totalProteinServingsConsumed += 1;
-      
-      if (nextBags.proteinServingsLeft <= 0) {
-        // Automatically open next bag from stock!
+    const targetBag = flavorBags.find(b => b.id === bagId);
+    if (targetBag) {
+      const updatedBag = nextBags.find(b => b.id === bagId);
+      if (updatedBag && updatedBag.servingsLeft <= 0) {
+        addToast(`🥛 ¡Se ha terminado el suplemento de la bolsa de sabor "${targetBag.flavor}"!`);
+        
+        // Auto-deduct from stock if inventory has stock
+        try {
+          const itemInInventory = targetBag.type === 'protein' ? proteinItem : creatineItem;
+          if (itemInInventory && itemInInventory.stock > 0) {
+            await supabase.from('inventory').update({ stock: Math.max(0, itemInInventory.stock - 1) }).eq('id', itemInInventory.id);
+            addToast(`⚡ Se descontó una nueva bolsa completa de ${targetBag.type === 'protein' ? 'Proteína' : 'Creatina'} de tu stock en Supabase.`);
+            await onRefresh();
+          } else {
+            addToast(`⚠️ ¡Sin existencias de bolsas de ${targetBag.type === 'protein' ? 'Proteína' : 'Creatina'} en Supabase!`);
+          }
+        } catch (e) {
+          console.error('Error updating stock on bag depletion:', e);
+        }
+      }
+    }
+
+    saveFlavorBags(nextBags);
+  };
+
+  // Deduct combo portions (1 protein scoop, 1 creatine scoop) from chosen bags
+  const deductComboPortions = async (proteinBagId: string, creatineBagId: string) => {
+    const nextBags = flavorBags.map(bag => {
+      if (bag.id === proteinBagId) {
+        return { ...bag, servingsLeft: Math.max(0, bag.servingsLeft - 1), totalConsumed: bag.totalConsumed + 1 };
+      }
+      if (bag.id === creatineBagId) {
+        return { ...bag, servingsLeft: Math.max(0, bag.servingsLeft - 1), totalConsumed: bag.totalConsumed + 1 };
+      }
+      return bag;
+    });
+
+    const pBag = flavorBags.find(b => b.id === proteinBagId);
+    if (pBag && pBag.servingsLeft - 1 <= 0) {
+      addToast(`🥛 ¡Se ha terminado la proteína de sabor "${pBag.flavor}"!`);
+      try {
         if (proteinItem && proteinItem.stock > 0) {
-          shouldSyncProteinStock = true;
-          nextBags.proteinServingsLeft = settings.servingsPerProteinBag;
-          addToast('🥛 ¡Se terminó la proteína de la bolsa activa! Abriendo una nueva bolsa del inventario.');
-        } else {
-          nextBags.proteinServingsLeft = 0;
-          addToast('⚠️ ¡Sin bolsas de Proteína adicionales en stock! Registra tu compra en el inventario.', 'info');
+          await supabase.from('inventory').update({ stock: Math.max(0, proteinItem.stock - 1) }).eq('id', proteinItem.id);
+          addToast('⚡ Se descontó una bolsa de Proteína de tu almacén.');
+          await onRefresh();
         }
-      }
+      } catch (e) {}
     }
 
-    if (type === 'creatine' || type === 'combo') {
-      nextBags.creatineServingsLeft -= 1;
-      nextBags.totalCreatineServingsConsumed += 1;
-
-      if (nextBags.creatineServingsLeft <= 0) {
-        // Automatically open next bag from stock!
+    const cBag = flavorBags.find(b => b.id === creatineBagId);
+    if (cBag && cBag.servingsLeft - 1 <= 0) {
+      addToast(`⚡ ¡Se ha terminado la creatina de sabor "${cBag.flavor}"!`);
+      try {
         if (creatineItem && creatineItem.stock > 0) {
-          shouldSyncCreatineStock = true;
-          nextBags.creatineServingsLeft = settings.servingsPerCreatineBag;
-          addToast('⚡ ¡Se terminó la creatina de la bolsa activa! Abriendo una nueva bolsa del inventario.');
-        } else {
-          nextBags.creatineServingsLeft = 0;
-          addToast('⚠️ ¡Sin bolsas de Creatina adicionales en stock! Registra tu compra en el inventario.', 'info');
+          await supabase.from('inventory').update({ stock: Math.max(0, creatineItem.stock - 1) }).eq('id', creatineItem.id);
+          addToast('⚡ Se descontó una bolsa de Creatina de tu almacén.');
+          await onRefresh();
         }
-      }
+      } catch (e) {}
     }
 
-    saveOpenBags(nextBags);
-
-    // Sync back with Supabase inventory immediately if a bag was opened
-    try {
-      if (shouldSyncProteinStock && proteinItem) {
-        await supabase.from('inventory').update({ stock: Math.max(0, proteinItem.stock - 1) }).eq('id', proteinItem.id);
-      }
-      if (shouldSyncCreatineStock && creatineItem) {
-        await supabase.from('inventory').update({ stock: Math.max(0, creatineItem.stock - 1) }).eq('id', creatineItem.id);
-      }
-      if (shouldSyncProteinStock || shouldSyncCreatineStock) {
-        await onRefresh();
-      }
-    } catch (e) {
-      console.error('Error updating stock on bag opening:', e);
-    }
+    saveFlavorBags(nextBags);
   };
 
   // Parse all members who have a supplement subscription (active or expired)
@@ -287,12 +349,27 @@ export const SupplementsTab = ({
     }));
   }, [membershipForm.type, membershipForm.start_date, settings]);
 
+  const openProteinBags = useMemo(() => flavorBags.filter(b => b.type === 'protein' && b.isOpened && b.servingsLeft > 0), [flavorBags]);
+  const openCreatineBags = useMemo(() => flavorBags.filter(b => b.type === 'creatine' && b.isOpened && b.servingsLeft > 0), [flavorBags]);
+
   // Single Serving Form State
   const [singleForm, setSingleForm] = useState({
     member_id: 'non_member', // can be assigned to a registered member or quick guest
     type: 'protein' as 'protein' | 'creatine' | 'combo',
     price: 35
   });
+
+  const [singleSaleFlavors, setSingleSaleFlavors] = useState({
+    proteinBagId: '',
+    creatineBagId: ''
+  });
+
+  useEffect(() => {
+    setSingleSaleFlavors({
+      proteinBagId: getDefaultBagId('protein'),
+      creatineBagId: getDefaultBagId('creatine')
+    });
+  }, [flavorBags]);
 
   useEffect(() => {
     let p = settings.proteinSinglePrice;
@@ -379,16 +456,34 @@ export const SupplementsTab = ({
   // Handle registering a Single Portion scoop sale
   const handleRegisterSingleSale = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    const chosenPBagId = singleSaleFlavors.proteinBagId || getDefaultBagId('protein');
+    const chosenCBagId = singleSaleFlavors.creatineBagId || getDefaultBagId('creatine');
+
+    if ((singleForm.type === 'protein' || singleForm.type === 'combo') && !chosenPBagId) {
+      addToast('No hay ninguna bolsa de proteínas abierta para realizar la venta individual en este momento', 'error');
+      return;
+    }
+    if ((singleForm.type === 'creatine' || singleForm.type === 'combo') && !chosenCBagId) {
+      addToast('No hay ninguna bolsa de creatina abierta para realizar la venta individual en este momento', 'error');
+      return;
+    }
+
+    const pFlavor = flavorBags.find(b => b.id === chosenPBagId)?.flavor || '';
+    const cFlavor = flavorBags.find(b => b.id === chosenCBagId)?.flavor || '';
+    let confirmDetail = '';
+    if (singleForm.type === 'protein') confirmDetail = `sabor "${pFlavor}"`;
+    else if (singleForm.type === 'creatine') confirmDetail = `sabor "${cFlavor}"`;
+    else confirmDetail = `Proteína "${pFlavor}" + Creatina "${cFlavor}"`;
+
     confirmAction(
       '¿Registrar Venta de Porción?',
-      `Se registrará la venta de scoops individual por $${singleForm.price} y se descontará 1 porción de la bolsa abierta. ¿Proceder?`,
+      `Se registrará la venta de scoop individual de ${confirmDetail} por $${singleForm.price} y se descontará de la respectiva bolsa activa. ¿Proceder?`,
       async () => {
         setIsSubmitting(true);
         try {
           // 1. If it was sold to a real member, let's create a payment or expense/sales link
-          // If selling through the general 'sales' table:
-          // We can link it to an retail item if they exist. Or register a standard quick payment of "visit/other"
-          const finalNoteText = `[VENTA_SCOOP_${singleForm.type.toUpperCase()}] Porción Individual Suplemento`;
+          const finalNoteText = `[VENTA_SCOOP_${singleForm.type.toUpperCase()}] Porción Individual Suplemento (${confirmDetail})`;
 
           // Let's create a standard receipt payment if linked to member, or general sale!
           if (singleForm.member_id !== 'non_member') {
@@ -406,10 +501,6 @@ export const SupplementsTab = ({
               category: 'nutrition'
             }]);
           } else {
-            // Register an entry as custom quick payment under the generic placeholder '1' (or whatever member)
-            // Or insert as a cash sales record! Let's insert in the database sales/payments table connected to member 1 or similar,
-            // or as a custom cash payment. Let's register as custom payment to member 1 or first member to keep bookkeeping intact if they wish,
-            // or general payments. Let's find first member id as quick-sales placeholder if non-member selected.
             const placeholderMemberId = members[0]?.id || 1;
             await supabase.from('payments').insert([{
               member_id: placeholderMemberId,
@@ -420,13 +511,19 @@ export const SupplementsTab = ({
               received_by: currentRole,
               payment_date: new Date().toISOString(),
               expiry_date: null,
-              notes: encryptData(`[VENTA_SCOOP_GUEST_${singleForm.type.toUpperCase()}] Porción vendida a Cliente General`),
+              notes: encryptData(`[VENTA_SCOOP_GUEST_${singleForm.type.toUpperCase()}] Porción vendida a Cliente General (${confirmDetail})`),
               category: 'nutrition'
             }]);
           }
 
           // 2. Deduct from bag stock
-          await deductPortion(singleForm.type);
+          if (singleForm.type === 'protein') {
+            await deductPortionFromBag(chosenPBagId);
+          } else if (singleForm.type === 'creatine') {
+            await deductPortionFromBag(chosenCBagId);
+          } else if (singleForm.type === 'combo') {
+            await deductComboPortions(chosenPBagId, chosenCBagId);
+          }
 
           addToast('Venta de porción registrada correctamente. Porciones descontadas.');
           await onRefresh();
@@ -457,9 +554,29 @@ export const SupplementsTab = ({
       return;
     }
 
+    // Resolve which bag(s) to deduct
+    const chosenPBagId = selectedBagsForMembers[mItem.member.id]?.protein || openProteinBags[0]?.id;
+    const chosenCBagId = selectedBagsForMembers[mItem.member.id]?.creatine || openCreatineBags[0]?.id;
+
+    if ((mItem.metadata.type === 'protein' || mItem.metadata.type === 'combo') && !chosenPBagId) {
+      addToast('No hay ninguna bolsa de proteínas abierta con porciones restantes en este momento', 'error');
+      return;
+    }
+    if ((mItem.metadata.type === 'creatine' || mItem.metadata.type === 'combo') && !chosenCBagId) {
+      addToast('No hay ninguna bolsa de creatina abierta con porciones restantes en este momento', 'error');
+      return;
+    }
+
+    const pFlavor = flavorBags.find(b => b.id === chosenPBagId)?.flavor || '';
+    const cFlavor = flavorBags.find(b => b.id === chosenCBagId)?.flavor || '';
+    let confirmDetail = '';
+    if (mItem.metadata.type === 'protein') confirmDetail = `sabor "${pFlavor}"`;
+    else if (mItem.metadata.type === 'creatine') confirmDetail = `sabor "${cFlavor}"`;
+    else confirmDetail = `Proteína "${pFlavor}" + Creatina "${cFlavor}"`;
+
     confirmAction(
       '¿Entregar Porción de Hoy?',
-      `¿Registrar la entrega del scoop de suplemento diario para ${mItem.member.name}? Se descontará de la bolsa abierta.`,
+      `¿Registrar la entrega del scoop de suplemento diario (${confirmDetail}) para ${mItem.member.name}? Se descontará de la bolsa activa.`,
       async () => {
         setIsSubmitting(true);
         try {
@@ -480,8 +597,14 @@ export const SupplementsTab = ({
 
           if (error) throw error;
 
-          // Deduct the scoops
-          await deductPortion(mItem.metadata.type);
+          // Deduct from flavor bag(s)
+          if (mItem.metadata.type === 'protein') {
+            await deductPortionFromBag(chosenPBagId!);
+          } else if (mItem.metadata.type === 'creatine') {
+            await deductPortionFromBag(chosenCBagId!);
+          } else if (mItem.metadata.type === 'combo') {
+            await deductComboPortions(chosenPBagId!, chosenCBagId!);
+          }
 
           addToast(`¡Scoop registrado para ${mItem.member.name}! Disfruta tu licuado.`);
           await onRefresh();
@@ -521,17 +644,25 @@ export const SupplementsTab = ({
 
           if (error) throw error;
 
-          // Refund scoop to open bag
-          const nextBags = { ...openBags };
+          // Refund scoop to selected/default flavor bag
+          const nextBags = [...flavorBags];
           if (mItem.metadata.type === 'protein' || mItem.metadata.type === 'combo') {
-            nextBags.proteinServingsLeft = Math.min(settings.servingsPerProteinBag, nextBags.proteinServingsLeft + 1);
-            nextBags.totalProteinServingsConsumed = Math.max(0, nextBags.totalProteinServingsConsumed - 1);
+            const pBagId = selectedBagsForMembers[mItem.member.id]?.protein || getDefaultBagId('protein');
+            const target = nextBags.find(b => b.id === pBagId);
+            if (target) {
+              target.servingsLeft = Math.min(target.totalServings, target.servingsLeft + 1);
+              target.totalConsumed = Math.max(0, target.totalConsumed - 1);
+            }
           }
           if (mItem.metadata.type === 'creatine' || mItem.metadata.type === 'combo') {
-            nextBags.creatineServingsLeft = Math.min(settings.servingsPerCreatineBag, nextBags.creatineServingsLeft + 1);
-            nextBags.totalCreatineServingsConsumed = Math.max(0, nextBags.totalCreatineServingsConsumed - 1);
+            const cBagId = selectedBagsForMembers[mItem.member.id]?.creatine || getDefaultBagId('creatine');
+            const target = nextBags.find(b => b.id === cBagId);
+            if (target) {
+              target.servingsLeft = Math.min(target.totalServings, target.servingsLeft + 1);
+              target.totalConsumed = Math.max(0, target.totalConsumed - 1);
+            }
           }
-          saveOpenBags(nextBags);
+          saveFlavorBags(nextBags);
 
           addToast('Entrega revertida y porción devuelta al stock de la bolsa.');
           await onRefresh();
@@ -585,22 +716,76 @@ export const SupplementsTab = ({
     setEditedSettings({ ...settings });
   }, [settings]);
 
-  // Adjust current open bag portions left manually
-  const [editingOpenPortions, setEditingOpenPortions] = useState(false);
-  const [manualOpenPortions, setManualOpenPortions] = useState({
-    protein: openBags.proteinServingsLeft,
-    creatine: openBags.creatineServingsLeft
-  });
+  // Manage flavor bags forms & actions
+  const [editingBagId, setEditingBagId] = useState<string | null>(null);
+  const [editingBagState, setEditingBagState] = useState<{
+    flavor: string;
+    servingsLeft: number;
+    totalServings: number;
+    isOpened: boolean;
+  } | null>(null);
 
-  const handleSaveManualPortions = () => {
-    const nextBags = {
-      ...openBags,
-      proteinServingsLeft: Math.max(0, parseInt(String(manualOpenPortions.protein)) || 0),
-      creatineServingsLeft: Math.max(0, parseInt(String(manualOpenPortions.creatine)) || 0)
+  const [newBagState, setNewBagState] = useState({
+    type: 'protein' as 'protein' | 'creatine',
+    flavor: '',
+    totalServings: 30,
+    isOpened: true
+  });
+  const [showAddBagForm, setShowAddBagForm] = useState(false);
+
+  const handleCreateBag = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newBagState.flavor.trim()) {
+      addToast('Por favor escribe el sabor de la bolsa', 'error');
+      return;
+    }
+    const newBag: FlavorBag = {
+      id: `bag_${Date.now()}`,
+      type: newBagState.type,
+      flavor: newBagState.flavor.trim(),
+      servingsLeft: newBagState.totalServings,
+      totalServings: newBagState.totalServings,
+      totalConsumed: 0,
+      isOpened: newBagState.isOpened,
+      createdAt: new Date().toISOString()
     };
-    saveOpenBags(nextBags);
-    setEditingOpenPortions(false);
-    addToast('Porciones de la bolsa abierta ajustadas de manera manual');
+    saveFlavorBags([...flavorBags, newBag]);
+    setNewBagState({ type: 'protein', flavor: '', totalServings: 30, isOpened: true });
+    setShowAddBagForm(false);
+    addToast(`Bolsa de ${newBagState.type === 'protein' ? 'Proteína' : 'Creatina'} sabor "${newBag.flavor}" creada y lista.`);
+  };
+
+  const handleUpdateBag = (bagId: string) => {
+    if (!editingBagState) return;
+    const nextBags = flavorBags.map(b => {
+      if (b.id === bagId) {
+        return {
+          ...b,
+          flavor: editingBagState.flavor.trim() || b.flavor,
+          servingsLeft: Math.min(editingBagState.totalServings, Math.max(0, editingBagState.servingsLeft)),
+          totalServings: Math.max(1, editingBagState.totalServings),
+          isOpened: editingBagState.isOpened
+        };
+      }
+      return b;
+    });
+    saveFlavorBags(nextBags);
+    setEditingBagId(null);
+    setEditingBagState(null);
+    addToast('Bolsa de sabor actualizada correctamente.');
+  };
+
+  const handleDeleteBag = (bagId: string) => {
+    const target = flavorBags.find(b => b.id === bagId);
+    if (!target) return;
+    confirmAction(
+      '¿Eliminar Bolsa de Sabor?',
+      `¿Deseas eliminar permanentemente la bolsa de ${target.type === 'protein' ? 'Proteína' : 'Creatina'} sabor "${target.flavor}"? Se perderán las porciones registradas de esta bolsa.`,
+      () => {
+        saveFlavorBags(flavorBags.filter(b => b.id !== bagId));
+        addToast('Bolsa eliminada correctamente.', 'info');
+      }
+    );
   };
 
   const todayStr = new Date().toISOString().split('T')[0];
@@ -723,7 +908,7 @@ export const SupplementsTab = ({
                               <div className="text-xs text-slate-400 font-mono">{item.member.phone || 'S/N Teléfono'}</div>
                             </td>
                             <td className="px-6 py-4">
-                              <span className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${
+                              <span className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider block w-fit ${
                                 item.metadata.type === 'protein' ? 'bg-emerald-50 text-emerald-600 border border-emerald-100' :
                                 item.metadata.type === 'creatine' ? 'bg-blue-50 text-blue-600 border border-blue-100' :
                                 'bg-indigo-50 text-indigo-600 border border-indigo-100'
@@ -731,6 +916,55 @@ export const SupplementsTab = ({
                                 {item.metadata.type === 'protein' ? '🥤 Proteína' : 
                                  item.metadata.type === 'creatine' ? '⚡ Creatina' : '🥛 Combo Ambas'}
                               </span>
+
+                              {/* Flavor Selector Selection Block */}
+                              {!hasClaimedToday && !item.isExpired && (
+                                <div className="mt-2 space-y-1.5 bg-slate-50/70 p-1.5 rounded-lg border border-slate-100 max-w-[155px]">
+                                  {(item.metadata.type === 'protein' || item.metadata.type === 'combo') && (
+                                    <div className="flex flex-col gap-0.5">
+                                      <span className="text-[9px] font-extrabold text-slate-400 uppercase tracking-wide">Sabor Prot:</span>
+                                      {openProteinBags.length > 0 ? (
+                                        <select
+                                          className="text-[10px] font-bold p-0.5 w-full bg-white border border-slate-200 rounded text-slate-700"
+                                          value={selectedBagsForMembers[item.member.id]?.protein || openProteinBags[0]?.id || ''}
+                                          onChange={e => setSelectedBagsForMembers(prev => ({
+                                            ...prev,
+                                            [item.member.id]: { ...prev[item.member.id], protein: e.target.value }
+                                          }))}
+                                        >
+                                          {openProteinBags.map(b => (
+                                            <option key={b.id} value={b.id}>{b.flavor} ({b.servingsLeft} scps)</option>
+                                          ))}
+                                        </select>
+                                      ) : (
+                                        <span className="text-[10px] text-rose-500 font-bold block">⚠️ Sin bolsa abierta</span>
+                                      )}
+                                    </div>
+                                  )}
+
+                                  {(item.metadata.type === 'creatine' || item.metadata.type === 'combo') && (
+                                    <div className="flex flex-col gap-0.5">
+                                      <span className="text-[9px] font-extrabold text-slate-400 uppercase tracking-wide">Sabor Crea:</span>
+                                      {openCreatineBags.length > 0 ? (
+                                        <select
+                                          className="text-[10px] font-bold p-0.5 w-full bg-white border border-slate-200 rounded text-slate-700"
+                                          value={selectedBagsForMembers[item.member.id]?.creatine || openCreatineBags[0]?.id || ''}
+                                          onChange={e => setSelectedBagsForMembers(prev => ({
+                                            ...prev,
+                                            [item.member.id]: { ...prev[item.member.id], creatine: e.target.value }
+                                          }))}
+                                        >
+                                          {openCreatineBags.map(b => (
+                                            <option key={b.id} value={b.id}>{b.flavor} ({b.servingsLeft} scps)</option>
+                                          ))}
+                                        </select>
+                                      ) : (
+                                        <span className="text-[10px] text-rose-500 font-bold block">⚠️ Sin bolsa abierta</span>
+                                      )}
+                                    </div>
+                                  )}
+                                </div>
+                              )}
                             </td>
                             <td className="px-6 py-4">
                               <div className={`text-sm font-bold ${item.isExpired ? 'text-rose-500' : 'text-slate-600'}`}>
@@ -801,107 +1035,232 @@ export const SupplementsTab = ({
                 </p>
               </div>
             </div>
-          </div>
-
-          {/* Right Column: Active Cups and Portion Tracking */}
-          <div className="space-y-6">
-            
-            {/* Portions in Open Bags Card */}
-            <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm relative overflow-hidden">
-              <div className="flex justify-between items-start mb-6">
+                    {/* Portions in Open Bags Card */}
+            <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm relative overflow-hidden space-y-6">
+              <div className="flex justify-between items-start">
                 <div>
-                  <h4 className="font-extrabold text-slate-800 text-md">Bolsas Activas Abiertas</h4>
-                  <p className="text-xs text-slate-400">Porciones restantes dentro de las bolsas en uso</p>
+                  <h4 className="font-extrabold text-slate-800 text-base leading-tight">Inventario de Sabores</h4>
+                  <p className="text-xs text-slate-400 mt-1">Bolsas abiertas y scoops por bolsa editables</p>
                 </div>
                 <button
-                  onClick={() => {
-                    setManualOpenPortions({
-                      protein: openBags.proteinServingsLeft,
-                      creatine: openBags.creatineServingsLeft
-                    });
-                    setEditingOpenPortions(!editingOpenPortions);
-                  }}
-                  className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-50 rounded-xl transition"
+                  onClick={() => setShowAddBagForm(!showAddBagForm)}
+                  className="px-3 py-1.5 bg-indigo-50 border border-indigo-100 text-indigo-600 hover:bg-indigo-100 text-xs font-bold rounded-xl transition flex items-center gap-1 cursor-pointer"
                 >
-                  <Settings size={16} />
+                  <Plus size={14} /> Nueva Bolsa
                 </button>
               </div>
 
-              {!editingOpenPortions ? (
-                <div className="space-y-6">
-                  {/* Protein Scoop Indicator */}
-                  <div>
-                    <div className="flex justify-between text-xs font-bold text-slate-600 mb-2">
-                      <span className="flex items-center gap-1.5"><CupSoda size={14} className="text-emerald-500" /> Bolsa de Proteína</span>
-                      <span className="font-mono text-emerald-600 font-bold">{openBags.proteinServingsLeft} / {settings.servingsPerProteinBag} porciones</span>
+              {/* Add Sabor Bag Form inline block */}
+              {showAddBagForm && (
+                <form onSubmit={handleCreateBag} className="p-4 bg-slate-50 border border-slate-150 rounded-2xl space-y-3.5 animate-in slide-in-from-top-4 duration-300">
+                  <div className="flex justify-between items-center">
+                    <span className="text-xs font-extrabold text-slate-600 uppercase tracking-widest">Nueva Bolsa de Sabor</span>
+                    <button 
+                      type="button" 
+                      onClick={() => setShowAddBagForm(false)}
+                      className="text-xs text-slate-400 hover:text-slate-600 font-bold"
+                    >
+                      Cerrar
+                    </button>
+                  </div>
+                  
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">Tipo</label>
+                      <select
+                        className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs"
+                        value={newBagState.type}
+                        onChange={e => setNewBagState({ ...newBagState, type: e.target.value as any })}
+                      >
+                        <option value="protein font-semibold">Proteína 🥤</option>
+                        <option value="creatine font-semibold">Creatina ⚡</option>
+                      </select>
                     </div>
-                    <div className="h-3.5 bg-slate-100 rounded-full overflow-hidden flex">
-                      <div 
-                        className="bg-emerald-500 h-full transition-all duration-500"
-                        style={{ width: `${Math.min(100, (openBags.proteinServingsLeft / settings.servingsPerProteinBag) * 100)}%` }}
+
+                    <div>
+                      <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">Scoops Totales</label>
+                      <input
+                        type="number"
+                        min="1"
+                        className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-semibold"
+                        value={newBagState.totalServings}
+                        onChange={e => setNewBagState({ ...newBagState, totalServings: Math.max(1, parseInt(e.target.value) || 30) })}
                       />
                     </div>
-                    <p className="text-[10px] text-slate-400 mt-1.5 flex justify-between">
-                      <span>Total consumidos: {openBags.totalProteinServingsConsumed} scoops</span>
-                      <span>Stock bolsas: {proteinItem?.stock || 0} uds</span>
-                    </p>
                   </div>
 
-                  {/* Creatine Scoop Indicator */}
                   <div>
-                    <div className="flex justify-between text-xs font-bold text-slate-600 mb-2">
-                      <span className="flex items-center gap-1.5"><CupSoda size={14} className="text-blue-500" /> Bolsa de Creatina</span>
-                      <span className="font-mono text-blue-600 font-bold">{openBags.creatineServingsLeft} / {settings.servingsPerCreatineBag} porciones</span>
-                    </div>
-                    <div className="h-3.5 bg-slate-100 rounded-full overflow-hidden flex">
-                      <div 
-                        className="bg-blue-500 h-full transition-all duration-500"
-                        style={{ width: `${Math.min(100, (openBags.creatineServingsLeft / settings.servingsPerCreatineBag) * 100)}%` }}
-                      />
-                    </div>
-                    <p className="text-[10px] text-slate-400 mt-1.5 flex justify-between">
-                      <span>Total consumidos: {openBags.totalCreatineServingsConsumed} scoops</span>
-                      <span>Stock bolsas: {creatineItem?.stock || 0} uds</span>
-                    </p>
-                  </div>
-                </div>
-              ) : (
-                <div className="space-y-4 p-4 bg-slate-50 border border-slate-150 rounded-2xl animate-in slide-in-from-top-4 duration-200">
-                  <h5 className="font-bold text-slate-700 text-xs uppercase tracking-wider mb-2">Editar manual porciones en bolsa</h5>
-                  <div>
-                    <label className="block text-[10px] uppercase font-black text-slate-400 mb-1">Porciones en bolsa proteína</label>
-                    <input 
-                      type="number" 
-                      className="w-full px-3 py-1.5 bg-white border border-slate-200 rounded-xl text-sm"
-                      value={manualOpenPortions.protein}
-                      onChange={e => setManualOpenPortions({...manualOpenPortions, protein: parseInt(e.target.value) || 0})}
+                    <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">Sabor / Notas</label>
+                    <input
+                      type="text"
+                      placeholder="Ej: Chocolate Suizo, Fresa, etc."
+                      className="w-full px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-semibold placeholder:text-slate-300 text-slate-700"
+                      value={newBagState.flavor}
+                      onChange={e => setNewBagState({ ...newBagState, flavor: e.target.value })}
                     />
                   </div>
-                  <div>
-                    <label className="block text-[10px] uppercase font-black text-slate-400 mb-1">Porciones en bolsa creatina</label>
-                    <input 
-                      type="number" 
-                      className="w-full px-3 py-1.5 bg-white border border-slate-200 rounded-xl text-sm"
-                      value={manualOpenPortions.creatine}
-                      onChange={e => setManualOpenPortions({...manualOpenPortions, creatine: parseInt(e.target.value) || 0})}
+
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      id="isOpenedCheckbox"
+                      className="rounded text-indigo-600 border-slate-300"
+                      checked={newBagState.isOpened}
+                      onChange={e => setNewBagState({ ...newBagState, isOpened: e.target.checked })}
                     />
+                    <label htmlFor="isOpenedCheckbox" className="text-xs text-slate-600 font-medium">Empieza Abierta (Activa)</label>
                   </div>
-                  <div className="flex gap-2 pt-2">
-                    <button 
-                      onClick={() => setEditingOpenPortions(false)}
-                      className="flex-1 py-2 text-xs border border-slate-200 bg-white rounded-xl font-bold"
-                    >
-                      Cancelar
-                    </button>
-                    <button 
-                      onClick={handleSaveManualPortions}
-                      className="flex-1 py-2 text-xs bg-indigo-600 text-white rounded-xl font-bold"
-                    >
-                      Guardar
-                    </button>
-                  </div>
-                </div>
+
+                  <button
+                    type="submit"
+                    className="w-full py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl transition"
+                  >
+                    Guardar Nueva Bolsa
+                  </button>
+                </form>
               )}
+
+              {/* Render of flavorBags list */}
+              <div className="space-y-4">
+                {flavorBags.map(bag => {
+                  const isEditing = editingBagId === bag.id;
+                  const pct = Math.min(100, Math.max(0, (bag.servingsLeft / bag.totalServings) * 100));
+                  
+                  return (
+                    <div key={bag.id} className="p-4 rounded-2xl border border-slate-100 bg-slate-50/50 space-y-3.5 transition">
+                      {isEditing && editingBagState ? (
+                        <div className="space-y-3 animate-in fade-in duration-200">
+                          <span className="text-[10px] font-black uppercase text-indigo-600">Ajustar Atributos</span>
+                          
+                          <div className="grid grid-cols-2 gap-2">
+                            <div>
+                              <label className="block text-[9px] uppercase font-bold text-slate-400 mb-0.5">Scoops Actuales</label>
+                              <input
+                                type="number"
+                                className="w-full px-2 py-1 bg-white border border-slate-200 rounded text-xs font-bold"
+                                value={editingBagState.servingsLeft}
+                                onChange={e => setEditingBagState({ ...editingBagState, servingsLeft: parseInt(e.target.value) || 0 })}
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-[9px] uppercase font-bold text-slate-400 mb-0.5">Scoops por Bolsa (Capacidad)</label>
+                              <input
+                                type="number"
+                                className="w-full px-2 py-1 bg-white border border-slate-200 rounded text-xs font-bold"
+                                value={editingBagState.totalServings}
+                                onChange={e => setEditingBagState({ ...editingBagState, totalServings: parseInt(e.target.value) || 30 })}
+                              />
+                            </div>
+                          </div>
+
+                          <div>
+                            <label className="block text-[9px] uppercase font-bold text-slate-400 mb-0.5">Nombre Sabor</label>
+                            <input
+                              type="text"
+                              className="w-full px-2 py-1 bg-white border border-slate-200 rounded text-xs font-bold"
+                              value={editingBagState.flavor}
+                              onChange={e => setEditingBagState({ ...editingBagState, flavor: e.target.value })}
+                            />
+                          </div>
+
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="checkbox"
+                              id={`isOpenedEdit_${bag.id}`}
+                              className="rounded text-indigo-600 border-slate-300"
+                              checked={editingBagState.isOpened}
+                              onChange={e => setEditingBagState({ ...editingBagState, isOpened: e.target.checked })}
+                            />
+                            <label htmlFor={`isOpenedEdit_${bag.id}`} className="text-xs text-slate-600 font-bold">Activa (Disponible para entrega)</label>
+                          </div>
+
+                          <div className="flex gap-2.5 pt-1.5 border-t border-slate-100">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEditingBagId(null);
+                                setEditingBagState(null);
+                              }}
+                              className="flex-1 py-1.5 text-xs text-slate-500 bg-white border border-slate-200 rounded font-semibold"
+                            >
+                              Cancelar
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleUpdateBag(bag.id)}
+                              className="flex-1 py-1.5 text-xs bg-indigo-600 text-white rounded font-bold"
+                            >
+                              Guardar
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="space-y-2">
+                          <div className="flex justify-between items-start">
+                            <div>
+                              <div className="flex items-center gap-1.5">
+                                <span className={`w-2.5 h-2.5 rounded-full ${bag.type === 'protein' ? 'bg-emerald-500' : 'bg-blue-500'}`} />
+                                <span className="text-xs font-extrabold text-slate-700">
+                                  {bag.type === 'protein' ? 'Proteína 🥤' : 'Creatina ⚡'}
+                                </span>
+                              </div>
+                              <span className="text-sm font-bold text-slate-800 ml-4 inline-block">{bag.flavor}</span>
+                            </div>
+
+                            <div className="flex items-center gap-1.5">
+                              <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${bag.isOpened ? 'bg-indigo-100 text-indigo-600' : 'bg-slate-100 text-slate-450'}`}>
+                                {bag.isOpened ? 'Abierta' : 'Cerrada'}
+                              </span>
+                              <button
+                                onClick={() => {
+                                  setEditingBagId(bag.id);
+                                  setEditingBagState({
+                                    flavor: bag.flavor,
+                                    servingsLeft: bag.servingsLeft,
+                                    totalServings: bag.totalServings,
+                                    isOpened: bag.isOpened
+                                  });
+                                }}
+                                className="p-1 hover:bg-slate-200 text-slate-500 rounded transition cursor-pointer"
+                                title="Editar"
+                              >
+                                <Settings size={12} />
+                              </button>
+                              <button
+                                onClick={() => handleDeleteBag(bag.id)}
+                                className="p-1 hover:bg-rose-100 text-rose-500 rounded transition cursor-pointer"
+                                title="Eliminar"
+                              >
+                                <Trash2 size={12} />
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* Progress slider indicators */}
+                          <div>
+                            <div className="h-2 bg-slate-100 rounded-full overflow-hidden flex">
+                              <div
+                                className={`${bag.type === 'protein' ? 'bg-emerald-500' : 'bg-blue-500'} h-full transition-all duration-300`}
+                                style={{ width: `${pct}%` }}
+                              />
+                            </div>
+                            <div className="flex justify-between text-[10px] text-slate-450 font-bold mt-1">
+                              <span>{bag.servingsLeft} de {bag.totalServings} scoops cap.</span>
+                              <span>Consumidos: {bag.totalConsumed}</span>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+
+                {flavorBags.length === 0 && (
+                  <div className="py-6 text-center text-xs text-slate-400 font-bold">
+                    No has agregado ninguna bolsa saborizada. Haz clic en &quot;Nueva Bolsa&quot; arriba.
+                  </div>
+                )}
+              </div>
             </div>
 
             {/* Warehouse Stock Status */}
@@ -1073,6 +1432,51 @@ export const SupplementsTab = ({
                       <option value="combo">Combo Ambas (${settings.comboSinglePrice})</option>
                     </select>
                   </div>
+                </div>
+
+                {/* Sabor select fields for Quick Sale */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {(singleForm.type === 'protein' || singleForm.type === 'combo') && (
+                    <div>
+                      <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Caja Sabor Proteína</label>
+                      {openProteinBags.length > 0 ? (
+                        <select
+                          className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 text-sm font-semibold text-slate-700"
+                          value={singleSaleFlavors.proteinBagId}
+                          onChange={e => setSingleSaleFlavors(prev => ({ ...prev, proteinBagId: e.target.value }))}
+                        >
+                          {openProteinBags.map(b => (
+                            <option key={b.id} value={b.id}>{b.flavor} ({b.servingsLeft} scoops)</option>
+                          ))}
+                        </select>
+                      ) : (
+                        <div className="p-3 text-xs bg-rose-50 text-rose-600 rounded-xl border border-rose-100 font-bold">
+                          ⚠️ Sin bolsas de proteína activas
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {(singleForm.type === 'creatine' || singleForm.type === 'combo') && (
+                    <div>
+                      <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Caja Sabor Creatina</label>
+                      {openCreatineBags.length > 0 ? (
+                        <select
+                          className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 text-sm font-semibold text-slate-700"
+                          value={singleSaleFlavors.creatineBagId}
+                          onChange={e => setSingleSaleFlavors(prev => ({ ...prev, creatineBagId: e.target.value }))}
+                        >
+                          {openCreatineBags.map(b => (
+                            <option key={b.id} value={b.id}>{b.flavor} ({b.servingsLeft} scoops)</option>
+                          ))}
+                        </select>
+                      ) : (
+                        <div className="p-3 text-xs bg-rose-50 text-rose-600 rounded-xl border border-rose-100 font-bold">
+                          ⚠️ Sin bolsas de creatina activas
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 <div className="flex items-center justify-between p-3.5 bg-emerald-50 rounded-2xl border border-emerald-100">
