@@ -315,6 +315,28 @@ export const SupplementsTab = ({
     return list;
   }, [members]);
 
+  // Member search & filters for dropdown selections
+  const [memberSearch, setMemberSearch] = useState('');
+  const [singleMemberSearch, setSingleMemberSearch] = useState('');
+
+  // Quick Inline Member addition
+  const [showQuickAddMember, setShowQuickAddMember] = useState(false);
+  const [quickMemberForm, setQuickMemberForm] = useState({
+    name: '',
+    phone: '',
+    service_type: 'gym' as 'gym' | 'personalized' | 'nutrition' | 'personalized_nutrition' | 'gym_nutrition'
+  });
+
+  const filteredMembersForDropdown = useMemo(() => {
+    if (!memberSearch.trim()) return members;
+    return members.filter(m => m.name.toLowerCase().includes(memberSearch.toLowerCase()));
+  }, [members, memberSearch]);
+
+  const filteredMembersForSingleDropdown = useMemo(() => {
+    if (!singleMemberSearch.trim()) return members;
+    return members.filter(m => m.name.toLowerCase().includes(singleMemberSearch.toLowerCase()));
+  }, [members, singleMemberSearch]);
+
   // Form states
   const [membershipForm, setMembershipForm] = useState({
     member_id: '',
@@ -377,6 +399,45 @@ export const SupplementsTab = ({
     if (singleForm.type === 'combo') p = settings.comboSinglePrice;
     setSingleForm(prev => ({ ...prev, price: p }));
   }, [singleForm.type, settings]);
+
+  // Handle registering a brand-new Member (Socio) inline
+  const handleQuickCreateMember = async () => {
+    if (!quickMemberForm.name.trim()) {
+      addToast('Por favor escribe el nombre completo del alumno', 'error');
+      return;
+    }
+    setIsSubmitting(true);
+    try {
+      const { data, error } = await supabase
+        .from('members')
+        .insert([{
+          name: quickMemberForm.name.trim(),
+          phone: quickMemberForm.phone.trim() || null,
+          service_type: quickMemberForm.service_type,
+          has_signed_waiver: false,
+          has_image_use_consent: false,
+          internal_notes: null
+        }])
+        .select()
+        .single();
+      
+      if (error) throw error;
+      
+      addToast(`Socio "${quickMemberForm.name}" registrado correctamente en Kinetix.`, 'success');
+      setQuickMemberForm({ name: '', phone: '', service_type: 'gym' });
+      setShowQuickAddMember(false);
+      
+      if (data) {
+        setMembershipForm(prev => ({ ...prev, member_id: String(data.id) }));
+      }
+      
+      await onRefresh();
+    } catch (e: any) {
+      addToast(`Error al crear socio: ${e.message || e}`, 'error');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
   // Handle registering a monthly supplement membership
   const handleRegisterMembership = async (e: React.FormEvent) => {
@@ -610,6 +671,104 @@ export const SupplementsTab = ({
           await onRefresh();
         } catch (err: any) {
           addToast(`Error al registrar consumo: ${err.message || err}`, 'error');
+        } finally {
+          setIsSubmitting(false);
+        }
+      }
+    );
+  };
+
+  // Perform bulk check-in for all active supplement members who haven't claimed today
+  const handleDailyCheckInAllActive = async () => {
+    const todayStr = new Date().toISOString().split('T')[0];
+    
+    // Check if weekday
+    const dayOfWeek = new Date().getDay();
+    const isWeekday = dayOfWeek >= 1 && dayOfWeek <= 5;
+    if (!isWeekday) {
+      addToast('⚠️ De acuerdo a las políticas definidas, estas membresías solo van de Lunes a Viernes.', 'error');
+      return;
+    }
+
+    const activeUnclaimed = supplementMembers.filter(item => {
+      const hasClaimedToday = item.metadata.consumptions.includes(todayStr);
+      return !hasClaimedToday && !item.isExpired;
+    });
+
+    if (activeUnclaimed.length === 0) {
+      addToast('No hay alumnos activos pendientes por recibir porción el día de hoy.', 'info');
+      return;
+    }
+
+    const pBagIdDefault = openProteinBags[0]?.id;
+    const cBagIdDefault = openCreatineBags[0]?.id;
+
+    confirmAction(
+      '¿Entregar Scoop Diario a TODOS?',
+      `Se registrará la entrega diaria de suplementos para los ${activeUnclaimed.length} alumnos activos pendientes. Se descontarán las porciones correspondientes de las bolsas activas. ¿Proceder?`,
+      async () => {
+        setIsSubmitting(true);
+        try {
+          const nextBags = [...flavorBags];
+          let updatedCount = 0;
+
+          for (const item of activeUnclaimed) {
+            const chosenPBagId = selectedBagsForMembers[item.member.id]?.protein || pBagIdDefault;
+            const chosenCBagId = selectedBagsForMembers[item.member.id]?.creatine || cBagIdDefault;
+
+            // Check if bags exist for types they need
+            if ((item.metadata.type === 'protein' || item.metadata.type === 'combo') && !chosenPBagId) {
+              continue; // skip if no protein bag
+            }
+            if ((item.metadata.type === 'creatine' || item.metadata.type === 'combo') && !chosenCBagId) {
+              continue; // skip if no creatine bag
+            }
+
+            // Prepare next consumptions
+            const nextConsumptions = [...item.metadata.consumptions, todayStr];
+            const rawNotes = getRawNotes(item.member.internal_notes || null);
+            const updatedMeta: SupplementMetadata = {
+              ...item.metadata,
+              consumptions: nextConsumptions
+            };
+
+            const encryptedNotes = formatSupplementMetadata(rawNotes, updatedMeta);
+
+            // Update in Supabase
+            const { error } = await supabase
+              .from('members')
+              .update({ internal_notes: encryptedNotes })
+              .eq('id', item.member.id);
+
+            if (error) {
+              console.error(`Error updating member ${item.member.name}:`, error);
+              continue;
+            }
+
+            // Deduct from bags in-memory
+            if (item.metadata.type === 'protein' || item.metadata.type === 'combo') {
+              const b = nextBags.find(bag => bag.id === chosenPBagId);
+              if (b) {
+                b.servingsLeft = Math.max(0, b.servingsLeft - 1);
+                b.totalConsumed += 1;
+              }
+            }
+            if (item.metadata.type === 'creatine' || item.metadata.type === 'combo') {
+              const b = nextBags.find(bag => bag.id === chosenCBagId);
+              if (b) {
+                b.servingsLeft = Math.max(0, b.servingsLeft - 1);
+                b.totalConsumed += 1;
+              }
+            }
+
+            updatedCount++;
+          }
+
+          saveFlavorBags(nextBags);
+          addToast(`¡Registro masivo completado! Se entregaron ${updatedCount} porciones.`);
+          await onRefresh();
+        } catch (err: any) {
+          addToast(`Error al realizar registro masivo: ${err.message || err}`, 'error');
         } finally {
           setIsSubmitting(false);
         }
@@ -859,7 +1018,7 @@ export const SupplementsTab = ({
           {/* Main List Column */}
           <div className="lg:col-span-2 space-y-6">
             <div className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden">
-              <div className="p-6 border-b border-slate-100 flex flex-col sm:flex-row justify-between sm:items-center gap-4">
+              <div className="p-6 border-b border-slate-100 flex flex-col lg:flex-row justify-between lg:items-center gap-4">
                 <div>
                   <h4 className="font-extrabold text-slate-800 text-lg flex items-center gap-2">
                     <Users size={20} className="text-indigo-600" />
@@ -867,15 +1026,24 @@ export const SupplementsTab = ({
                   </h4>
                   <p className="text-xs text-slate-400">Total de alumnos inscritos en porción diaria</p>
                 </div>
-                <div className="relative w-full sm:w-64">
-                  <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
-                  <input 
-                    type="text" 
-                    placeholder="Buscar alumno..."
-                    className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 text-sm font-medium"
-                    value={searchQuery}
-                    onChange={e => setSearchQuery(e.target.value)}
-                  />
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={handleDailyCheckInAllActive}
+                    className="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold text-[11px] rounded-xl shadow-sm transition flex items-center justify-center gap-1.5 cursor-pointer uppercase tracking-wider"
+                  >
+                    ⚡ Entrega Global Hoy
+                  </button>
+                  <div className="relative w-full sm:w-48">
+                    <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                    <input 
+                      type="text" 
+                      placeholder="Buscar alumno..."
+                      className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 text-sm font-medium"
+                      value={searchQuery}
+                      onChange={e => setSearchQuery(e.target.value)}
+                    />
+                  </div>
                 </div>
               </div>
 
@@ -1320,18 +1488,90 @@ export const SupplementsTab = ({
 
               <form onSubmit={handleRegisterMembership} className="space-y-4">
                 <div>
-                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Seleccionar Socio Kinetix</label>
-                  <select 
-                    required
-                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 text-sm font-semibold"
-                    value={membershipForm.member_id}
-                    onChange={e => setMembershipForm({...membershipForm, member_id: e.target.value})}
-                  >
-                    <option value="">-- Elige un Alumno --</option>
-                    {members.map(m => (
-                      <option key={m.id} value={m.id}>{m.name}</option>
-                    ))}
-                  </select>
+                  <div className="flex justify-between items-center mb-1.5">
+                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider">Seleccionar Socio Kinetix</label>
+                    <button
+                      type="button"
+                      onClick={() => setShowQuickAddMember(!showQuickAddMember)}
+                      className="text-xs text-indigo-600 hover:text-indigo-800 font-extrabold flex items-center gap-1 cursor-pointer"
+                    >
+                      <Plus size={12} /> {showQuickAddMember ? 'Cerrar Registro' : '➕ Registrar Alumno Nuevo'}
+                    </button>
+                  </div>
+
+                  {showQuickAddMember ? (
+                    <div className="p-4 bg-indigo-50/50 rounded-2xl border border-indigo-100/50 space-y-3.5 mb-3.5">
+                      <span className="text-[10px] font-black uppercase text-indigo-600 tracking-wider flex items-center gap-1">
+                        <Sparkles size={12} /> Registrar Alumno en Kinetix
+                      </span>
+                      
+                      <div className="space-y-2.5">
+                        <div>
+                          <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Nombre Completo *</label>
+                          <input 
+                            type="text"
+                            placeholder="Ej: Sofía Pérez"
+                            className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-semibold"
+                            value={quickMemberForm.name}
+                            onChange={e => setQuickMemberForm({...quickMemberForm, name: e.target.value})}
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Teléfono (Opcional)</label>
+                          <input 
+                            type="text"
+                            placeholder="Ej: 3312345678"
+                            className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-semibold"
+                            value={quickMemberForm.phone}
+                            onChange={e => setQuickMemberForm({...quickMemberForm, phone: e.target.value})}
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Tipo de Servicio asignado</label>
+                          <select 
+                            className="w-full px-2.5 py-2 bg-white border border-slate-200 rounded-xl text-xs font-semibold"
+                            value={quickMemberForm.service_type}
+                            onChange={e => setQuickMemberForm({...quickMemberForm, service_type: e.target.value as any})}
+                          >
+                            <option value="gym">Solo Gimnasio</option>
+                            <option value="personalized">Entrenamiento Personalizado</option>
+                            <option value="nutrition">Nutrición</option>
+                            <option value="personalized_nutrition">Personalizado + Nutrición</option>
+                            <option value="gym_nutrition">Kinetix + Nutrición</option>
+                          </select>
+                        </div>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={handleQuickCreateMember}
+                        className="w-full py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl transition flex items-center justify-center gap-1.5"
+                      >
+                        <CheckCircle2 size={12} /> Guardar Alumno en Supabase
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      <input 
+                        type="text"
+                        placeholder="🔍 Filtrar lista de alumnos por nombre..."
+                        className="w-full px-3.5 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold placeholder:text-slate-400 focus:ring-1 focus:ring-indigo-500/20"
+                        value={memberSearch}
+                        onChange={e => setMemberSearch(e.target.value)}
+                      />
+                      <select 
+                        required
+                        className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 text-sm font-semibold"
+                        value={membershipForm.member_id}
+                        onChange={e => setMembershipForm({...membershipForm, member_id: e.target.value})}
+                      >
+                        <option value="">-- Elige un Alumno ({filteredMembersForDropdown.length} encontrados) --</option>
+                        {filteredMembersForDropdown.map(m => (
+                          <option key={m.id} value={m.id}>{m.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">
@@ -1408,16 +1648,25 @@ export const SupplementsTab = ({
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Socio (Opcional)</label>
-                    <select 
-                      className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 text-sm font-semibold"
-                      value={singleForm.member_id}
-                      onChange={e => setSingleForm({...singleForm, member_id: e.target.value})}
-                    >
-                      <option value="non_member">Cliente General / Huésped</option>
-                      {members.map(m => (
-                        <option key={m.id} value={m.id}>{m.name}</option>
-                      ))}
-                    </select>
+                    <div className="space-y-1.5">
+                      <input 
+                        type="text"
+                        placeholder="🔍 Filtrar socio..."
+                        className="w-full px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold placeholder:text-slate-400 focus:ring-1 focus:ring-indigo-500/20"
+                        value={singleMemberSearch}
+                        onChange={e => setSingleMemberSearch(e.target.value)}
+                      />
+                      <select 
+                        className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 text-sm font-semibold"
+                        value={singleForm.member_id}
+                        onChange={e => setSingleForm({...singleForm, member_id: e.target.value})}
+                      >
+                        <option value="non_member">Cliente General / Huésped ({filteredMembersForSingleDropdown.length} encontrados)</option>
+                        {filteredMembersForSingleDropdown.map(m => (
+                          <option key={m.id} value={m.id}>{m.name}</option>
+                        ))}
+                      </select>
+                    </div>
                   </div>
                   
                   <div>
