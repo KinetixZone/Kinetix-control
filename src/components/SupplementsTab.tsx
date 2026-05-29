@@ -89,7 +89,7 @@ export const SupplementsTab = ({
 
   // 1. Supplements Local Settings (Configurable pricing, savings, etc.)
   const [settings, setSettings] = useState(() => {
-    const saved = localStorage.getItem('kinetix_supplements_settings_v2');
+    const saved = localStorage.getItem('kinetix_supplements_settings_v3');
     if (saved) {
       try {
         return JSON.parse(saved);
@@ -98,8 +98,8 @@ export const SupplementsTab = ({
       }
     }
     return {
-      proteinSinglePrice: 45,
-      creatineSinglePrice: 45,
+      proteinSinglePrice: 35,
+      creatineSinglePrice: 15,
       comboSinglePrice: 45,
       proteinMonthlyPrice: 499,
       creatineMonthlyPrice: 199,
@@ -112,7 +112,7 @@ export const SupplementsTab = ({
   // Save settings in local storage
   const saveSettings = (newSettings: typeof settings) => {
     setSettings(newSettings);
-    localStorage.setItem('kinetix_supplements_settings_v2', JSON.stringify(newSettings));
+    localStorage.setItem('kinetix_supplements_settings_v3', JSON.stringify(newSettings));
     addToast('Precios y configuración actualizados correctamente');
   };
 
