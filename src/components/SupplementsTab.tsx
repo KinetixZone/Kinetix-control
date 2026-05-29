@@ -191,27 +191,30 @@ export const SupplementsTab = ({
     setIsSubmitting(true);
     try {
       if (!proteinItem) {
-        await supabase.from('inventory').insert([{
+        const { error: errorP } = await supabase.from('inventory').insert([{
           name: 'Bolsa de Proteína',
           price: 800,
           cost_price: 600,
           stock: 5,
           category: 'supplements'
         }]);
+        if (errorP) throw errorP;
       }
       if (!creatineItem) {
-        await supabase.from('inventory').insert([{
+        const { error: errorC } = await supabase.from('inventory').insert([{
           name: 'Bolsa de Creatina',
           price: 400,
           cost_price: 250,
           stock: 5,
           category: 'supplements'
         }]);
+        if (errorC) throw errorC;
       }
       await onRefresh();
       addToast('Bolsas de Proteína y Creatina detectadas o creadas en el inventario real');
-    } catch (e) {
-      addToast('Error al inicializar productos en Supabase', 'error');
+    } catch (e: any) {
+      console.error('Error al inicializar productos:', e);
+      addToast(`Error al inicializar productos en Supabase: ${e.message || e}`, 'error');
     } finally {
       setIsSubmitting(false);
     }
