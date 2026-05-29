@@ -75,3 +75,5 @@ export interface UserProfile {
   pin: string;
   role: 'Leslie' | 'Jorge' | 'Staff';
 }
+
+export type Role = 'Leslie' | 'Jorge' | 'Staff';

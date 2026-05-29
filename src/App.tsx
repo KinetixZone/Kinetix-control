@@ -60,7 +60,8 @@ import { Logo } from './components/Logo';
 import { ReceiptModal } from './components/ReceiptModal';
 import { Sidebar } from './components/Sidebar';
 import { ErrorBoundary } from './components/ErrorBoundary';
-import { Member, Payment, Expense, FinancialStats, InventoryItem, Sale, Attendance, UserProfile } from './types';
+import { SupplementsTab } from './components/SupplementsTab';
+import { Member, Payment, Expense, FinancialStats, InventoryItem, Sale, Attendance, UserProfile, Role } from './types';
 
 // Role type
 
@@ -79,7 +80,7 @@ export default function App() {
   const [selectedUserForPin, setSelectedUserForPin] = useState<string | null>(null);
   const [paymentAlerts, setPaymentAlerts] = useState<any[]>([]);
   const [birthdayAlerts, setBirthdayAlerts] = useState<any[]>([]);
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'members' | 'payments' | 'expenses' | 'analytics' | 'attendance' | 'inventory' | 'users' | 'sales' | 'personalized' | 'nutrition'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'members' | 'payments' | 'expenses' | 'analytics' | 'attendance' | 'inventory' | 'users' | 'sales' | 'personalized' | 'nutrition' | 'supplements'>('dashboard');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [showAddMember, setShowAddMember] = useState(false);
   const [showAddPayment, setShowAddPayment] = useState(false);
@@ -1607,6 +1608,7 @@ export default function App() {
               {activeTab === 'users' && 'Personal'}
               {activeTab === 'personalized' && 'Entrenamientos Personalizados'}
               {activeTab === 'nutrition' && 'Servicio de Nutrición'}
+              {activeTab === 'supplements' && 'Bar de Suplementos'}
             </h2>
             <div className="h-6 mt-1 flex items-center gap-2">
               <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
@@ -3937,6 +3939,17 @@ export default function App() {
                </div>
             </div>
           </div>
+        )}
+        {activeTab === 'supplements' && (
+          <SupplementsTab
+            members={members}
+            payments={payments}
+            inventory={inventory}
+            currentRole={currentRole}
+            onRefresh={fetchData}
+            addToast={addToast}
+            confirmAction={confirmAction}
+          />
         )}
       </main>
 

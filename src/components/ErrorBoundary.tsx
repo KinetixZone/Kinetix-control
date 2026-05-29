@@ -10,6 +10,7 @@ interface ErrorBoundaryState {
 }
 
 export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundaryState> {
+  props!: ErrorBoundaryProps;
   state = { hasError: false };
 
   static getDerivedStateFromError() { return { hasError: true }; }

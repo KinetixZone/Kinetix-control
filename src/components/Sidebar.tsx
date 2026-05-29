@@ -10,7 +10,8 @@ import {
   ShoppingBag, 
   Box, 
   Lock, 
-  LogOut 
+  LogOut,
+  Sparkles
 } from 'lucide-react';
 import { Logo } from './Logo';
 
@@ -48,6 +49,7 @@ export const Sidebar = ({
     { id: 'attendance', label: 'Asistencia', icon: Clock },
     { id: 'personalized', label: 'Personalizados', icon: Fingerprint, role: ['Leslie', 'Jorge'] },
     { id: 'nutrition', label: 'Nutrición', icon: Apple, role: ['Leslie', 'Jorge'] },
+    { id: 'supplements', label: 'Suplementos', icon: Sparkles },
     { id: 'sales', label: 'Ventas', icon: ShoppingBag },
     { id: 'inventory', label: 'Inventario', icon: Box },
     { id: 'users', label: 'Usuarios', icon: Lock, role: ['Leslie'] },
