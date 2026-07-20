@@ -36,6 +36,7 @@ import {
   Wallet,
   Apple,
   Download,
+  UserCheck,
   Check as CheckIcon
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
@@ -1439,11 +1440,39 @@ export default function App() {
 
   const memberStats = useMemo(() => {
     const monthToMatch = memberMonthFilter || new Date().toISOString().slice(0, 7);
+    
+    const kinetixAll = members.filter(m => m.service_type === 'gym' || m.service_type === 'gym_nutrition');
+    const kinetixCount = kinetixAll.length;
+    const kinetixActive = kinetixAll.filter(m => m.last_expiry && !isExpired(m.last_expiry)).length;
+    const kinetixExpired = kinetixCount - kinetixActive;
+
+    const personalizedAll = members.filter(m => m.service_type === 'personalized' || m.service_type === 'personalized_nutrition');
+    const personalizedCount = personalizedAll.length;
+    const personalizedActive = personalizedAll.filter(m => m.last_expiry && !isExpired(m.last_expiry)).length;
+    const personalizedExpired = personalizedCount - personalizedActive;
+
+    const nutritionAll = members.filter(m => m.service_type === 'nutrition');
+    const nutritionCount = nutritionAll.length;
+    const nutritionActive = nutritionAll.filter(m => m.last_expiry && !isExpired(m.last_expiry)).length;
+    const nutritionExpired = nutritionCount - nutritionActive;
+
     return {
       all: members.length,
       new: members.filter(m => m.created_at?.startsWith(monthToMatch)).length,
       active: members.filter(m => m.last_expiry && !isExpired(m.last_expiry)).length,
-      expired: members.filter(m => isExpired(m.last_expiry || null)).length
+      expired: members.filter(m => isExpired(m.last_expiry || null)).length,
+      
+      kinetixCount,
+      kinetixActive,
+      kinetixExpired,
+      
+      personalizedCount,
+      personalizedActive,
+      personalizedExpired,
+      
+      nutritionCount,
+      nutritionActive,
+      nutritionExpired
     };
   }, [members, memberMonthFilter]);
 
@@ -1827,7 +1856,18 @@ export default function App() {
                   </div>
                   <div>
                     <div className="text-3xl font-black text-slate-900">{members.length}</div>
-                    <div className="text-xs font-bold text-slate-400 uppercase tracking-wider">Total Miembros</div>
+                    <div className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Total Miembros</div>
+                    <div className="flex flex-wrap gap-1 text-[9px] font-extrabold">
+                      <span className="bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded-md">
+                        Kinetix: {members.filter(m => m.service_type === 'gym' || m.service_type === 'gym_nutrition').length}
+                      </span>
+                      <span className="bg-amber-50 text-amber-700 px-1.5 py-0.5 rounded-md">
+                        Pers: {members.filter(m => m.service_type === 'personalized' || m.service_type === 'personalized_nutrition').length}
+                      </span>
+                      <span className="bg-emerald-50 text-emerald-700 px-1.5 py-0.5 rounded-md">
+                        Nutri: {members.filter(m => m.service_type === 'nutrition').length}
+                      </span>
+                    </div>
                   </div>
                 </div>
                 <div className="bg-emerald-50 p-6 rounded-[2rem] border border-emerald-100 flex flex-col justify-between">
@@ -2015,27 +2055,92 @@ export default function App() {
             </div>
 
             <div className="flex flex-wrap gap-2 mb-2 p-1 bg-slate-100 rounded-2xl w-fit">
-               <label className="px-3 py-2 text-[10px] font-black text-slate-400 uppercase tracking-widest border-r border-slate-200">Filtrar por Servicio:</label>
+               <label className="px-3 py-2 text-[10px] font-black text-slate-400 uppercase tracking-widest border-r border-slate-200 flex items-center">Filtrar por Servicio:</label>
                {[
-                 { id: '', label: 'Cualquiera' },
-                 { id: 'gym', label: 'Kinetix' },
-                 { id: 'personalized', label: 'Personalizado' },
-                 { id: 'nutrition', label: 'Solo Nutri' },
-                 { id: 'personalized_nutrition', label: 'Pack Pers.' },
-                 { id: 'gym_nutrition', label: 'Pack Kinetix' }
+                 { id: '', label: 'Cualquiera', count: members.length },
+                 { id: 'gym', label: 'Kinetix', count: members.filter(m => m.service_type === 'gym').length },
+                 { id: 'personalized', label: 'Personalizado', count: members.filter(m => m.service_type === 'personalized').length },
+                 { id: 'nutrition', label: 'Solo Nutri', count: members.filter(m => m.service_type === 'nutrition').length },
+                 { id: 'personalized_nutrition', label: 'Pack Pers.', count: members.filter(m => m.service_type === 'personalized_nutrition').length },
+                 { id: 'gym_nutrition', label: 'Pack Kinetix', count: members.filter(m => m.service_type === 'gym_nutrition').length }
                ].map(service => (
                  <button
                    key={service.id}
                    onClick={() => setMemberServiceFilter(service.id)}
-                   className={`px-3 py-2 rounded-xl text-[10px] font-black uppercase transition-all ${
+                   className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-[10px] font-black uppercase transition-all ${
                      memberServiceFilter === service.id
                      ? 'bg-white text-blue-600 shadow-sm' 
                      : 'text-slate-500 hover:text-slate-700'
                    }`}
                  >
-                   {service.label}
+                   <span>{service.label}</span>
+                   <span className={`px-1.5 py-0.5 rounded-md text-[8px] font-black ${
+                     memberServiceFilter === service.id ? 'bg-blue-50 text-blue-600' : 'bg-slate-200 text-slate-500'
+                   }`}>
+                     {service.count}
+                   </span>
                  </button>
                ))}
+            </div>
+
+            {/* Totales por Grupo de Servicio */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-2">
+              {/* Kinetix Card */}
+              <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-xs flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 bg-blue-50 text-blue-600 rounded-xl">
+                    <Dumbbell size={16} />
+                  </div>
+                  <div>
+                    <div className="text-[10px] font-black text-slate-400 uppercase tracking-wider">Kinetix (Gimnasio)</div>
+                    <div className="text-lg font-black text-slate-950 font-mono">
+                      {memberStats.kinetixCount} <span className="text-[10px] font-medium text-slate-400 uppercase">Miembros</span>
+                    </div>
+                  </div>
+                </div>
+                <div className="flex gap-2 text-[10px] font-black">
+                  <span className="text-emerald-600 bg-emerald-50 px-2 py-1 rounded-md">{memberStats.kinetixActive} Activos</span>
+                  <span className="text-rose-600 bg-rose-50 px-2 py-1 rounded-md">{memberStats.kinetixExpired} Vencidos</span>
+                </div>
+              </div>
+
+              {/* Personalizados Card */}
+              <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-xs flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 bg-amber-50 text-amber-600 rounded-xl">
+                    <UserCheck size={16} />
+                  </div>
+                  <div>
+                    <div className="text-[10px] font-black text-slate-400 uppercase tracking-wider">Personalizados</div>
+                    <div className="text-lg font-black text-slate-950 font-mono">
+                      {memberStats.personalizedCount} <span className="text-[10px] font-medium text-slate-400 uppercase">Miembros</span>
+                    </div>
+                  </div>
+                </div>
+                <div className="flex gap-2 text-[10px] font-black">
+                  <span className="text-emerald-600 bg-emerald-50 px-2 py-1 rounded-md">{memberStats.personalizedActive} Activos</span>
+                  <span className="text-rose-600 bg-rose-50 px-2 py-1 rounded-md">{memberStats.personalizedExpired} Vencidos</span>
+                </div>
+              </div>
+
+              {/* Solo Nutrición Card */}
+              <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-xs flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 bg-emerald-50 text-emerald-600 rounded-xl">
+                    <Apple size={16} />
+                  </div>
+                  <div>
+                    <div className="text-[10px] font-black text-slate-400 uppercase tracking-wider">Solo Nutrición</div>
+                    <div className="text-lg font-black text-slate-950 font-mono">
+                      {memberStats.nutritionCount} <span className="text-[10px] font-medium text-slate-400 uppercase">Miembros</span>
+                    </div>
+                  </div>
+                </div>
+                <div className="flex gap-2 text-[10px] font-black">
+                  <span className="text-emerald-600 bg-emerald-50 px-2 py-1 rounded-md">{memberStats.nutritionActive} Activos</span>
+                  <span className="text-rose-600 bg-rose-50 px-2 py-1 rounded-md">{memberStats.nutritionExpired} Vencidos</span>
+                </div>
+              </div>
             </div>
 
             <div className="bg-white rounded-3xl shadow-sm border border-slate-100 p-6 flex flex-col md:flex-row gap-6 items-center">
