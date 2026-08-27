@@ -1,5 +1,8 @@
 {
   "name": "Kinetix Functional Zone",
   "description": "Sistema experto de control de pagos, gastos y rentabilidad para Kinetix Functional Zone.",
-  "requestFramePermissions": []
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
 }

@@ -66,7 +66,87 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 import { SupplementsTab } from './components/SupplementsTab';
 import { Member, Payment, Expense, FinancialStats, InventoryItem, Sale, Attendance, UserProfile, Role } from './types';
 
-// Role type
+export const PAYMENT_DAY_OPTIONS = [
+  { 
+    day: '5', 
+    label: 'Día 5', 
+    name: 'Azul (Día 5)',
+    colorName: 'Azul',
+    badgeClass: 'bg-blue-100 text-blue-800 border-blue-300 font-bold', 
+    dotClass: 'bg-blue-600 ring-2 ring-blue-200', 
+    buttonClass: 'border-blue-500 bg-blue-50 text-blue-700 shadow-xs ring-2 ring-blue-400/30',
+    inactiveBtnClass: 'border-slate-200 hover:border-blue-300 text-slate-700 bg-white hover:bg-blue-50/50'
+  },
+  { 
+    day: '15', 
+    label: 'Día 15', 
+    name: 'Rojo (Día 15)',
+    colorName: 'Rojo',
+    badgeClass: 'bg-rose-100 text-rose-800 border-rose-300 font-bold', 
+    dotClass: 'bg-rose-600 ring-2 ring-rose-200', 
+    buttonClass: 'border-rose-500 bg-rose-50 text-rose-700 shadow-xs ring-2 ring-rose-400/30',
+    inactiveBtnClass: 'border-slate-200 hover:border-rose-300 text-slate-700 bg-white hover:bg-rose-50/50'
+  },
+  { 
+    day: '20', 
+    label: 'Día 20', 
+    name: 'Rosa (Día 20)',
+    colorName: 'Rosa',
+    badgeClass: 'bg-pink-100 text-pink-800 border-pink-300 font-bold', 
+    dotClass: 'bg-pink-600 ring-2 ring-pink-200', 
+    buttonClass: 'border-pink-500 bg-pink-50 text-pink-700 shadow-xs ring-2 ring-pink-400/30',
+    inactiveBtnClass: 'border-slate-200 hover:border-pink-300 text-slate-700 bg-white hover:bg-pink-50/50'
+  },
+  { 
+    day: '30', 
+    label: 'Día 30', 
+    name: 'Verde (Día 30)',
+    colorName: 'Verde',
+    badgeClass: 'bg-emerald-100 text-emerald-800 border-emerald-300 font-bold', 
+    dotClass: 'bg-emerald-600 ring-2 ring-emerald-200', 
+    buttonClass: 'border-emerald-500 bg-emerald-50 text-emerald-700 shadow-xs ring-2 ring-emerald-400/30',
+    inactiveBtnClass: 'border-slate-200 hover:border-emerald-300 text-slate-700 bg-white hover:bg-emerald-50/50'
+  },
+];
+
+export function getMemberPaymentDayConfig(member: Member) {
+  let rawDay: string | number | null = (member as any).payment_day || null;
+  
+  if (!rawDay && member.internal_notes) {
+    const match = member.internal_notes.match(/\[DIA_PAGO:(\d+)\]/i);
+    if (match) rawDay = match[1];
+  }
+
+  if (!rawDay && member.last_expiry) {
+    const parts = member.last_expiry.split('-');
+    if (parts.length >= 3) {
+      const d = parseInt(parts[2], 10);
+      if ([4, 5, 6].includes(d)) rawDay = '5';
+      else if ([14, 15, 16].includes(d)) rawDay = '15';
+      else if ([19, 20, 21].includes(d)) rawDay = '20';
+      else if ([28, 29, 30, 31, 1, 2].includes(d)) rawDay = '30';
+    }
+  }
+
+  const dayStr = rawDay ? rawDay.toString() : '';
+  const found = PAYMENT_DAY_OPTIONS.find(c => c.day === dayStr);
+  if (found) return found;
+
+  if (rawDay) {
+    return {
+      day: dayStr,
+      label: `Día ${dayStr}`,
+      name: `Día ${dayStr}`,
+      colorName: 'Gris',
+      badgeClass: 'bg-slate-100 text-slate-700 border-slate-300 font-bold',
+      dotClass: 'bg-slate-500 ring-2 ring-slate-200',
+      buttonClass: 'border-slate-500 bg-slate-50 text-slate-700 shadow-xs',
+      inactiveBtnClass: 'border-slate-200 text-slate-700 bg-white'
+    };
+  }
+
+  return null;
+}
 
 export default function App() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
@@ -118,6 +198,7 @@ export default function App() {
   const [analyticsYearFilter, setAnalyticsYearFilter] = useState(new Date().getFullYear().toString());
   const [memberFilterTab, setMemberFilterTab] = useState<'all' | 'new' | 'active' | 'expired'>('all');
   const [memberServiceFilter, setMemberServiceFilter] = useState<string>('');
+  const [memberPaymentDayFilter, setMemberPaymentDayFilter] = useState<string>('');
   const [selectedMember, setSelectedMember] = useState<Member | null>(null);
   const [currentRole, setCurrentRole] = useState<Role>('Leslie');
   const [errorMsg, setErrorMsg] = useState('');
@@ -131,7 +212,8 @@ export default function App() {
     service_type: 'gym' as 'gym' | 'personalized' | 'nutrition' | 'personalized_nutrition' | 'gym_nutrition',
     has_signed_waiver: false,
     has_image_use_consent: false,
-    internal_notes: ''
+    internal_notes: '',
+    payment_day: ''
   });
   const [newPayment, setNewPayment] = useState({
     member_id: '' as any,
@@ -917,6 +999,13 @@ export default function App() {
         setErrorMsg('');
         setIsSubmitting(true);
         try {
+          // Prepare internal_notes with payment_day tag
+          let cleanUserNotes = (newMember.internal_notes || '').replace(/\[DIA_PAGO:(\d+)\]/gi, '').trim();
+          let finalNotes = cleanUserNotes;
+          if (newMember.payment_day) {
+            finalNotes = finalNotes ? `${finalNotes}\n[DIA_PAGO:${newMember.payment_day}]` : `[DIA_PAGO:${newMember.payment_day}]`;
+          }
+
           // Prepare data: handle optional fields correctly
           const memberData: any = {
             name: newMember.name.trim(),
@@ -926,7 +1015,7 @@ export default function App() {
             service_type: newMember.service_type || 'gym',
             has_signed_waiver: newMember.has_signed_waiver,
             has_image_use_consent: newMember.has_image_use_consent,
-            internal_notes: newMember.internal_notes?.trim() || null
+            internal_notes: finalNotes || null
           };
 
           let result;
@@ -965,7 +1054,8 @@ export default function App() {
             service_type: 'gym',
             has_signed_waiver: false,
             has_image_use_consent: false,
-            internal_notes: ''
+            internal_notes: '',
+            payment_day: ''
           });
           setShowAddMember(false);
           setIsEditing(false);
@@ -987,6 +1077,25 @@ export default function App() {
   };
 
   const handleEditMember = (member: Member) => {
+    const rawNotes = member.internal_notes || '';
+    const dayTagMatch = rawNotes.match(/\[DIA_PAGO:(\d+)\]/i);
+    const cleanNotes = rawNotes.replace(/\[DIA_PAGO:(\d+)\]/gi, '').trim();
+    
+    // Determine payment day from tag, or fallback from last_expiry
+    let pDay = dayTagMatch ? dayTagMatch[1] : '';
+    if (!pDay && (member as any).payment_day) {
+      pDay = String((member as any).payment_day);
+    } else if (!pDay && member.last_expiry) {
+      const parts = member.last_expiry.split('-');
+      if (parts.length >= 3) {
+        const d = parseInt(parts[2], 10);
+        if ([4, 5, 6].includes(d)) pDay = '5';
+        else if ([14, 15, 16].includes(d)) pDay = '15';
+        else if ([19, 20, 21].includes(d)) pDay = '20';
+        else if ([28, 29, 30, 31, 1, 2].includes(d)) pDay = '30';
+      }
+    }
+
     setNewMember({
       name: member.name,
       phone: member.phone || '',
@@ -995,7 +1104,8 @@ export default function App() {
       service_type: member.service_type || 'gym',
       has_signed_waiver: member.has_signed_waiver || false,
       has_image_use_consent: member.has_image_use_consent || false,
-      internal_notes: member.internal_notes || ''
+      internal_notes: cleanNotes,
+      payment_day: pDay
     });
     setIsEditing(true);
     setEditingId(member.id);
@@ -1440,7 +1550,11 @@ export default function App() {
       ? m.created_at?.startsWith(memberMonthFilter) || false 
       : true;
 
-    return matchesSearch && matchesMonth && matchesTab && matchesService;
+    const matchesPaymentDay = memberPaymentDayFilter 
+      ? getMemberPaymentDayConfig(m)?.day === memberPaymentDayFilter 
+      : true;
+
+    return matchesSearch && matchesMonth && matchesTab && matchesService && matchesPaymentDay;
   });
 
   const memberStats = useMemo(() => {
@@ -2122,6 +2236,53 @@ export default function App() {
                ))}
             </div>
 
+            {/* Filtrar por Día de Pago (Código de Color) */}
+            <div className="flex flex-wrap gap-2 mb-2 p-1 bg-slate-100 rounded-2xl w-fit items-center">
+               <label className="px-3 py-2 text-[10px] font-black text-slate-400 uppercase tracking-widest border-r border-slate-200 flex items-center gap-1.5">
+                 <Calendar size={12} className="text-slate-500" />
+                 Día de Pago:
+               </label>
+               <button
+                 onClick={() => setMemberPaymentDayFilter('')}
+                 className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-[10px] font-black uppercase transition-all ${
+                   !memberPaymentDayFilter
+                   ? 'bg-white text-slate-900 shadow-xs' 
+                   : 'text-slate-500 hover:text-slate-700'
+                 }`}
+               >
+                 <span>Todos</span>
+                 <span className={`px-1.5 py-0.5 rounded-md text-[8px] font-black ${
+                   !memberPaymentDayFilter ? 'bg-slate-100 text-slate-900' : 'bg-slate-200 text-slate-500'
+                 }`}>
+                   {members.length}
+                 </span>
+               </button>
+               {PAYMENT_DAY_OPTIONS.map(opt => {
+                 const count = members.filter(m => getMemberPaymentDayConfig(m)?.day === opt.day).length;
+                 const isSelected = memberPaymentDayFilter === opt.day;
+                 return (
+                   <button
+                     key={opt.day}
+                     onClick={() => setMemberPaymentDayFilter(isSelected ? '' : opt.day)}
+                     className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-[10px] font-black uppercase transition-all ${
+                       isSelected
+                       ? `${opt.badgeClass} shadow-xs border` 
+                       : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
+                     }`}
+                     title={`Filtrar miembros con corte ${opt.name}`}
+                   >
+                     <span className={`w-2 h-2 rounded-full ${opt.dotClass}`} />
+                     <span>{opt.label}</span>
+                     <span className={`px-1.5 py-0.5 rounded-md text-[8px] font-black font-mono ${
+                       isSelected ? 'bg-white/90' : 'bg-slate-200 text-slate-500'
+                     }`}>
+                       {count}
+                     </span>
+                   </button>
+                 );
+               })}
+            </div>
+
             {/* Totales por Grupo de Servicio */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-2">
               {/* Kinetix Card */}
@@ -2258,6 +2419,18 @@ export default function App() {
                                     <FileText size={6} /> NOTAS
                                   </span>
                                 )}
+                                {(() => {
+                                  const pDayConfig = getMemberPaymentDayConfig(m);
+                                  if (pDayConfig) {
+                                    return (
+                                      <span className={`text-[8px] font-black uppercase px-1.5 py-0.5 rounded border inline-flex items-center gap-1 ${pDayConfig.badgeClass}`} title={`Día de corte habitual: ${pDayConfig.label} (${pDayConfig.colorName})`}>
+                                        <span className={`w-1.5 h-1.5 rounded-full ${pDayConfig.dotClass}`} />
+                                        {pDayConfig.label}
+                                      </span>
+                                    );
+                                  }
+                                  return null;
+                                })()}
                               </div>
                               {m.service_type && (
                                 <span className={`text-[8px] font-black uppercase tracking-tighter px-1 rounded ${
@@ -2279,7 +2452,21 @@ export default function App() {
                         </span>
                       </div>
                       <div className="flex justify-between items-center text-xs bg-slate-50 p-3 rounded-2xl">
-                        <span className="text-slate-400 font-bold uppercase tracking-wider">Vencimiento</span>
+                        <div className="flex items-center gap-2">
+                          <span className="text-slate-400 font-bold uppercase tracking-wider">Vencimiento</span>
+                          {(() => {
+                            const pDayConfig = getMemberPaymentDayConfig(m);
+                            if (pDayConfig) {
+                              return (
+                                <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[8px] font-bold border ${pDayConfig.badgeClass}`}>
+                                  <span className={`w-1.5 h-1.5 rounded-full ${pDayConfig.dotClass}`} />
+                                  {pDayConfig.label}
+                                </span>
+                              );
+                            }
+                            return null;
+                          })()}
+                        </div>
                         <span className={`font-mono font-bold ${isExp ? 'text-rose-600' : 'text-slate-700'}`}>
                           {(() => {
                             if (!m.last_expiry) return 'PENDIENTE';
@@ -2384,6 +2571,18 @@ export default function App() {
                                   <FileText size={8} /> NOTAS
                                 </span>
                               )}
+                              {(() => {
+                                const pDayConfig = getMemberPaymentDayConfig(m);
+                                if (pDayConfig) {
+                                  return (
+                                    <span className={`text-[7px] font-black uppercase px-1.5 py-0.5 rounded border inline-flex items-center gap-1 ${pDayConfig.badgeClass}`} title={`Día de corte mensual: ${pDayConfig.label} (${pDayConfig.colorName})`}>
+                                      <span className={`w-1.5 h-1.5 rounded-full ${pDayConfig.dotClass}`} />
+                                      {pDayConfig.label}
+                                    </span>
+                                  );
+                                }
+                                return null;
+                              })()}
                           </div>
                         </td>
                         <td className="px-6 py-4 text-sm text-slate-600">{m.phone}</td>
@@ -2399,8 +2598,24 @@ export default function App() {
                             {m.last_expiry ? (isExpired(m.last_expiry) ? 'Vencido' : 'Activo') : 'Sin Pagos'}
                           </span>
                         </td>
-                        <td className="px-6 py-4 text-sm font-mono">
-                          {m.last_expiry ? new Date(m.last_expiry).toLocaleDateString() : '-'}
+                        <td className="px-6 py-4">
+                          <div className="flex flex-col gap-0.5">
+                            <span className="text-sm font-mono font-medium text-slate-700">
+                              {m.last_expiry ? new Date(m.last_expiry).toLocaleDateString() : '-'}
+                            </span>
+                            {(() => {
+                              const pDayConfig = getMemberPaymentDayConfig(m);
+                              if (pDayConfig) {
+                                return (
+                                  <span className={`text-[8px] font-bold uppercase px-1.5 py-0.5 rounded border w-fit inline-flex items-center gap-1 ${pDayConfig.badgeClass}`}>
+                                    <span className={`w-1.5 h-1.5 rounded-full ${pDayConfig.dotClass}`} />
+                                    {pDayConfig.label}
+                                  </span>
+                                );
+                              }
+                              return null;
+                            })()}
+                          </div>
                         </td>
                         <td className="px-6 py-4">
                           <div className="flex gap-3">
@@ -4423,6 +4638,53 @@ export default function App() {
                     <option value="personalized_nutrition">Personalizado + Nutrición</option>
                     <option value="gym_nutrition">Kinetix + Nutrición</option>
                   </select>
+                </div>
+
+                {/* Día habitual de pago (Código de Color) */}
+                <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-200 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="block text-xs font-black text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
+                      <Calendar size={13} className="text-indigo-600" />
+                      Día Habitual de Pago (Código de Color)
+                    </label>
+                    {newMember.payment_day && (
+                      <button
+                        type="button"
+                        onClick={() => setNewMember({ ...newMember, payment_day: '' })}
+                        className="text-[10px] text-slate-400 hover:text-slate-600 underline font-bold"
+                      >
+                        Limpiar
+                      </button>
+                    )}
+                  </div>
+                  <p className="text-[11px] text-slate-500">
+                    Elige el día mensual de corte para identificar visualmente cuándo le toca pagar:
+                  </p>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-0.5">
+                    {PAYMENT_DAY_OPTIONS.map(opt => {
+                      const isSelected = newMember.payment_day === opt.day;
+                      return (
+                        <button
+                          key={opt.day}
+                          type="button"
+                          onClick={() => setNewMember({ ...newMember, payment_day: isSelected ? '' : opt.day })}
+                          className={`flex items-center justify-center gap-1.5 py-2 px-2 rounded-xl border-2 transition-all font-black text-xs ${
+                            isSelected ? opt.buttonClass : opt.inactiveBtnClass
+                          }`}
+                        >
+                          <span className={`w-2.5 h-2.5 rounded-full ${opt.dotClass}`} />
+                          <span>{opt.label}</span>
+                          {isSelected && <CheckIcon size={12} className="ml-0.5" />}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <div className="text-[10px] text-slate-500 pt-0.5 flex flex-wrap gap-x-3 gap-y-1">
+                    <span>🔵 Azul: Día 5</span>
+                    <span>🔴 Rojo: Día 15</span>
+                    <span>🌸 Rosa: Día 20</span>
+                    <span>🟢 Verde: Día 30</span>
+                  </div>
                 </div>
 
                 <div className="pt-4 border-t border-slate-100">

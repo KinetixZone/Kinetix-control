@@ -10,6 +10,7 @@ export interface Member {
   has_signed_waiver?: boolean;
   has_image_use_consent?: boolean;
   internal_notes?: string;
+  payment_day?: number | string | null;
 }
 
 export interface Payment {
