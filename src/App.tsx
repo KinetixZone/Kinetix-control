@@ -21,6 +21,8 @@ import {
   Menu,
   X,
   ChevronRight,
+  ChevronLeft,
+  Filter,
   LogOut,
   MessageCircle,
   Fingerprint,
@@ -100,9 +102,12 @@ export default function App() {
   const [editingId, setEditingId] = useState<number | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [paymentSearchTerm, setPaymentSearchTerm] = useState('');
-  const [paymentMonthFilter, setPaymentMonthFilter] = useState('');
+  const [paymentMonthFilter, setPaymentMonthFilter] = useState(new Date().toISOString().slice(0, 7)); // Default to current month
+  const [paymentDayFilter, setPaymentDayFilter] = useState('');
   const [paymentUserFilter, setPaymentUserFilter] = useState('');
   const [paymentYearFilter, setPaymentYearFilter] = useState('');
+  const [paymentCategoryFilter, setPaymentCategoryFilter] = useState('');
+  const [paymentPage, setPaymentPage] = useState(1);
   const [expenseMonthFilter, setExpenseMonthFilter] = useState('');
   const [expenseUserFilter, setExpenseUserFilter] = useState('');
   const [expenseYearFilter, setExpenseYearFilter] = useState('');
@@ -1476,13 +1481,47 @@ export default function App() {
     };
   }, [members, memberMonthFilter]);
 
-  const filteredPayments = payments.filter(p => {
-    const matchesSearch = (p.member_name?.toLowerCase() || '').includes(paymentSearchTerm.toLowerCase());
-    const matchesMonth = paymentMonthFilter ? p.payment_date?.startsWith(paymentMonthFilter) : true;
-    const matchesYear = paymentYearFilter ? p.payment_date?.startsWith(paymentYearFilter) : true;
-    const matchesUser = paymentUserFilter ? p.received_by === paymentUserFilter : true;
-    return matchesSearch && matchesMonth && matchesYear && matchesUser;
-  });
+  const currentMonthStr = useMemo(() => new Date().toISOString().slice(0, 7), []);
+  const todayDateStr = useMemo(() => new Date().toISOString().slice(0, 10), []);
+  const currentYearStr = useMemo(() => new Date().getFullYear().toString(), []);
+  const prevMonthStr = useMemo(() => {
+    const d = new Date();
+    d.setDate(1);
+    d.setMonth(d.getMonth() - 1);
+    return d.toISOString().slice(0, 7);
+  }, []);
+
+  const filteredPayments = useMemo(() => {
+    return payments.filter(p => {
+      const matchesSearch = paymentSearchTerm ? (
+        (p.member_name?.toLowerCase() || '').includes(paymentSearchTerm.toLowerCase()) ||
+        (p.notes?.toLowerCase() || '').includes(paymentSearchTerm.toLowerCase())
+      ) : true;
+      const matchesDay = paymentDayFilter ? p.payment_date?.startsWith(paymentDayFilter) : true;
+      const matchesMonth = paymentMonthFilter ? p.payment_date?.startsWith(paymentMonthFilter) : true;
+      const matchesYear = paymentYearFilter ? p.payment_date?.startsWith(paymentYearFilter) : true;
+      const matchesUser = paymentUserFilter ? p.received_by === paymentUserFilter : true;
+      const matchesCategory = paymentCategoryFilter ? p.category === paymentCategoryFilter : true;
+      return matchesSearch && matchesDay && matchesMonth && matchesYear && matchesUser && matchesCategory;
+    });
+  }, [payments, paymentSearchTerm, paymentDayFilter, paymentMonthFilter, paymentYearFilter, paymentUserFilter, paymentCategoryFilter]);
+
+  const paymentStats = useMemo(() => {
+    const totalAmount = filteredPayments.reduce((acc, p) => acc + (Number(p.amount) || 0), 0);
+    const count = filteredPayments.length;
+    const avgAmount = count > 0 ? totalAmount / count : 0;
+    const monthlyCount = filteredPayments.filter(p => p.payment_type === 'monthly').length;
+    const visitCount = filteredPayments.filter(p => p.payment_type === 'daily' || p.payment_type === 'visit').length;
+    return { totalAmount, count, avgAmount, monthlyCount, visitCount };
+  }, [filteredPayments]);
+
+  const PAYMENTS_PER_PAGE = 20;
+  const totalPaymentPages = Math.ceil(filteredPayments.length / PAYMENTS_PER_PAGE) || 1;
+  const currentPaymentPage = Math.min(Math.max(1, paymentPage), totalPaymentPages);
+  const paginatedPayments = useMemo(() => {
+    const start = (currentPaymentPage - 1) * PAYMENTS_PER_PAGE;
+    return filteredPayments.slice(start, start + PAYMENTS_PER_PAGE);
+  }, [filteredPayments, currentPaymentPage]);
 
   const filteredExpenses = expenses.filter(e => {
     const matchesMonth = expenseMonthFilter ? e.expense_date?.startsWith(expenseMonthFilter) : true;
@@ -2412,52 +2451,213 @@ export default function App() {
 
         {activeTab === 'payments' && (
           <div className="space-y-4">
-            <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-4 flex flex-col md:flex-row gap-4">
-              <div className="relative flex-1">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-                <input 
-                  type="text" 
-                  placeholder="Buscar por cliente..." 
-                  className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all"
-                  value={paymentSearchTerm}
-                  onChange={(e) => setPaymentSearchTerm(e.target.value)}
-                />
+            {/* Quick Period Selectors */}
+            <div className="flex flex-wrap items-center justify-between gap-3 bg-white p-3 rounded-2xl border border-slate-100 shadow-xs">
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-2 flex items-center gap-1">
+                  <Calendar size={12} className="text-blue-500" />
+                  Período:
+                </span>
+                {[
+                  {
+                    id: 'current_month',
+                    label: 'Este Mes',
+                    isActive: paymentMonthFilter === currentMonthStr && !paymentDayFilter && !paymentYearFilter,
+                    action: () => {
+                      setPaymentMonthFilter(currentMonthStr);
+                      setPaymentDayFilter('');
+                      setPaymentYearFilter('');
+                      setPaymentPage(1);
+                    }
+                  },
+                  {
+                    id: 'today',
+                    label: 'Hoy',
+                    isActive: paymentDayFilter === todayDateStr,
+                    action: () => {
+                      setPaymentDayFilter(todayDateStr);
+                      setPaymentMonthFilter('');
+                      setPaymentYearFilter('');
+                      setPaymentPage(1);
+                    }
+                  },
+                  {
+                    id: 'prev_month',
+                    label: 'Mes Anterior',
+                    isActive: paymentMonthFilter === prevMonthStr && !paymentDayFilter && !paymentYearFilter,
+                    action: () => {
+                      setPaymentMonthFilter(prevMonthStr);
+                      setPaymentDayFilter('');
+                      setPaymentYearFilter('');
+                      setPaymentPage(1);
+                    }
+                  },
+                  {
+                    id: 'current_year',
+                    label: 'Este Año',
+                    isActive: paymentYearFilter === currentYearStr && !paymentMonthFilter && !paymentDayFilter,
+                    action: () => {
+                      setPaymentYearFilter(currentYearStr);
+                      setPaymentMonthFilter('');
+                      setPaymentDayFilter('');
+                      setPaymentPage(1);
+                    }
+                  },
+                  {
+                    id: 'all',
+                    label: 'Todo el Historial',
+                    isActive: !paymentMonthFilter && !paymentDayFilter && !paymentYearFilter,
+                    action: () => {
+                      setPaymentMonthFilter('');
+                      setPaymentDayFilter('');
+                      setPaymentYearFilter('');
+                      setPaymentPage(1);
+                    }
+                  }
+                ].map(tab => (
+                  <button
+                    key={tab.id}
+                    onClick={tab.action}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-black uppercase transition-all ${
+                      tab.isActive
+                        ? 'bg-blue-600 text-white shadow-sm shadow-blue-200'
+                        : 'bg-slate-50 text-slate-600 hover:bg-slate-100'
+                    }`}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
               </div>
-              <div className="flex flex-wrap gap-2">
-                <input 
-                  type="month" 
-                  className="px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition-all text-sm"
-                  value={paymentMonthFilter}
-                  onChange={(e) => {
-                    setPaymentMonthFilter(e.target.value);
-                    if (e.target.value) setPaymentYearFilter('');
-                  }}
-                />
-                <select
-                  className="px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition-all text-sm"
-                  value={paymentYearFilter}
-                  onChange={(e) => {
-                    setPaymentYearFilter(e.target.value);
-                    if (e.target.value) setPaymentMonthFilter('');
-                  }}
-                >
-                  <option value="">Año (Todos)</option>
-                  {Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - i).map(y => (
-                    <option key={y} value={y.toString()}>{y}</option>
-                  ))}
-                </select>
-                <select
-                  className="px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition-all text-sm"
-                  value={paymentUserFilter}
-                  onChange={(e) => setPaymentUserFilter(e.target.value)}
-                >
-                  <option value="">Todos los usuarios</option>
-                  {users.map(u => (
-                    <option key={u.username} value={u.username}>{u.username}</option>
-                  ))}
-                </select>
-                {true && (
-                  <div className="flex gap-2">
+
+              {/* Quick Summary Badge in header */}
+              <div className="flex items-center gap-2 px-3 py-1 bg-slate-50 rounded-xl text-xs font-bold text-slate-600">
+                <span className="text-slate-400">Total Período:</span>
+                <span className="font-mono text-emerald-600 font-black">${paymentStats.totalAmount.toFixed(2)}</span>
+                <span className="text-slate-300">|</span>
+                <span className="text-slate-500">{paymentStats.count} pagos</span>
+              </div>
+            </div>
+
+            {/* Quick Metrics Cards */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-xs flex items-center justify-between">
+                <div>
+                  <div className="text-[10px] font-black text-slate-400 uppercase tracking-wider">Recaudación Período</div>
+                  <div className="text-xl font-black text-emerald-600 font-mono mt-0.5">
+                    ${paymentStats.totalAmount.toFixed(2)}
+                  </div>
+                  <div className="text-[10px] text-slate-400 mt-1 flex gap-2">
+                    <span>Mensualidades: <b>{paymentStats.monthlyCount}</b></span>
+                    <span>•</span>
+                    <span>Visitas: <b>{paymentStats.visitCount}</b></span>
+                  </div>
+                </div>
+                <div className="p-3 bg-emerald-50 text-emerald-600 rounded-2xl">
+                  <DollarSign size={20} />
+                </div>
+              </div>
+
+              <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-xs flex items-center justify-between">
+                <div>
+                  <div className="text-[10px] font-black text-slate-400 uppercase tracking-wider">Transacciones</div>
+                  <div className="text-xl font-black text-slate-900 font-mono mt-0.5">
+                    {paymentStats.count} <span className="text-xs font-medium text-slate-400">pagos</span>
+                  </div>
+                  <div className="text-[10px] text-slate-400 mt-1">
+                    {paymentDayFilter ? 'Filtrado por día específico' : 
+                     paymentMonthFilter ? `Mes: ${paymentMonthFilter}` : 
+                     paymentYearFilter ? `Año: ${paymentYearFilter}` : 'Histórico completo'}
+                  </div>
+                </div>
+                <div className="p-3 bg-blue-50 text-blue-600 rounded-2xl">
+                  <Receipt size={20} />
+                </div>
+              </div>
+
+              <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-xs flex items-center justify-between">
+                <div>
+                  <div className="text-[10px] font-black text-slate-400 uppercase tracking-wider">Promedio por Pago</div>
+                  <div className="text-xl font-black text-indigo-600 font-mono mt-0.5">
+                    ${paymentStats.avgAmount.toFixed(2)}
+                  </div>
+                  <div className="text-[10px] text-slate-400 mt-1">
+                    Ticket promedio en este período
+                  </div>
+                </div>
+                <div className="p-3 bg-indigo-50 text-indigo-600 rounded-2xl">
+                  <BarChart3 size={20} />
+                </div>
+              </div>
+            </div>
+
+            {/* Filter Bar & Search */}
+            <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-4 space-y-3">
+              <div className="flex flex-col md:flex-row gap-3">
+                <div className="relative flex-1">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                  <input 
+                    type="text" 
+                    placeholder="Buscar por cliente o concepto..." 
+                    className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all text-sm"
+                    value={paymentSearchTerm}
+                    onChange={(e) => {
+                      setPaymentSearchTerm(e.target.value);
+                      setPaymentPage(1);
+                    }}
+                  />
+                  {paymentSearchTerm && (
+                    <button
+                      onClick={() => setPaymentSearchTerm('')}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                    >
+                      <X size={14} />
+                    </button>
+                  )}
+                </div>
+
+                <div className="flex flex-wrap gap-2 items-center">
+                  <input 
+                    type="month" 
+                    className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition-all text-xs font-medium"
+                    value={paymentMonthFilter}
+                    onChange={(e) => {
+                      setPaymentMonthFilter(e.target.value);
+                      setPaymentDayFilter('');
+                      if (e.target.value) setPaymentYearFilter('');
+                      setPaymentPage(1);
+                    }}
+                    title="Seleccionar mes específico"
+                  />
+                  <select
+                    className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition-all text-xs font-medium"
+                    value={paymentYearFilter}
+                    onChange={(e) => {
+                      setPaymentYearFilter(e.target.value);
+                      setPaymentDayFilter('');
+                      if (e.target.value) setPaymentMonthFilter('');
+                      setPaymentPage(1);
+                    }}
+                  >
+                    <option value="">Año (Todos)</option>
+                    {Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - i).map(y => (
+                      <option key={y} value={y.toString()}>{y}</option>
+                    ))}
+                  </select>
+                  <select
+                    className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition-all text-xs font-medium"
+                    value={paymentUserFilter}
+                    onChange={(e) => {
+                      setPaymentUserFilter(e.target.value);
+                      setPaymentPage(1);
+                    }}
+                  >
+                    <option value="">Todos los usuarios</option>
+                    {users.map(u => (
+                      <option key={u.username} value={u.username}>{u.username}</option>
+                    ))}
+                  </select>
+
+                  <div className="flex gap-1.5 ml-auto">
                     <button 
                       onClick={() => {
                         setNewPayment({
@@ -2479,14 +2679,14 @@ export default function App() {
                         setEditingId(null);
                         setShowAddPayment(true);
                       }}
-                      className="flex items-center gap-2 text-xs bg-indigo-600 text-white px-4 py-2 rounded-xl hover:bg-indigo-700 transition-all font-bold shadow-md shadow-indigo-100"
+                      className="flex items-center gap-1.5 text-xs bg-indigo-600 text-white px-3.5 py-2 rounded-xl hover:bg-indigo-700 transition-all font-bold shadow-md shadow-indigo-100"
                     >
                       <Plus size={14} />
                       Nuevo Pago
                     </button>
                     <button 
                       onClick={() => exportPaymentsToExcel(filteredPayments)}
-                      className="flex items-center gap-2 text-xs bg-emerald-50 text-emerald-700 border border-emerald-100 px-4 py-2 rounded-xl hover:bg-emerald-100 transition-all font-bold shadow-sm"
+                      className="flex items-center gap-1.5 text-xs bg-emerald-50 text-emerald-700 border border-emerald-100 px-3 py-2 rounded-xl hover:bg-emerald-100 transition-all font-bold shadow-xs"
                       title="Exportar a Excel"
                     >
                       <ShoppingBag size={14} />
@@ -2494,24 +2694,63 @@ export default function App() {
                     </button>
                     <button 
                       onClick={() => exportPaymentsToCSV(filteredPayments)}
-                      className="flex items-center gap-2 text-xs bg-slate-50 text-slate-600 border border-slate-200 px-4 py-2 rounded-xl hover:bg-slate-100 transition-all font-bold shadow-sm"
+                      className="flex items-center gap-1.5 text-xs bg-slate-50 text-slate-600 border border-slate-200 px-3 py-2 rounded-xl hover:bg-slate-100 transition-all font-bold shadow-xs"
                       title="Exportar a CSV"
                     >
                       <DollarSign size={14} />
                       CSV
                     </button>
-                    <button 
-                      onClick={() => exportToXML(filteredPayments, 'pagos_kinetix', 'Pagos', 'Pago')}
-                      className="flex items-center gap-2 text-xs bg-indigo-600 text-white px-4 py-2 rounded-xl hover:bg-indigo-700 transition-all font-bold shadow-sm"
-                      title="Exportar a XML"
-                    >
-                      <FileText size={14} />
-                      XML
-                    </button>
                   </div>
-                )}
+                </div>
+              </div>
+
+              {/* Category Sub-Filters */}
+              <div className="flex flex-wrap items-center gap-1.5 pt-2 border-t border-slate-100">
+                <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest mr-1 flex items-center gap-1">
+                  <Filter size={11} /> Servicio:
+                </span>
+                {[
+                  { id: '', label: 'Todos los Servicios' },
+                  { id: 'gym', label: 'Kinetix' },
+                  { id: 'personalized', label: 'Personalizado' },
+                  { id: 'nutrition', label: 'Solo Nutri' },
+                  { id: 'personalized_nutrition', label: 'Pack Jorge + Nutri' },
+                  { id: 'gym_nutrition', label: 'Pack Kinetix + Nutri' },
+                ].map(cat => (
+                  <button
+                    key={cat.id}
+                    onClick={() => {
+                      setPaymentCategoryFilter(cat.id);
+                      setPaymentPage(1);
+                    }}
+                    className={`px-2.5 py-1 rounded-lg text-[10px] font-black uppercase transition-all ${
+                      paymentCategoryFilter === cat.id
+                        ? 'bg-slate-900 text-white shadow-xs'
+                        : 'bg-slate-100 text-slate-500 hover:text-slate-800'
+                    }`}
+                  >
+                    {cat.label}
+                  </button>
+                ))}
               </div>
             </div>
+
+            {/* If search is active and nothing found in current filter, offer search all */}
+            {paymentSearchTerm && filteredPayments.length === 0 && (paymentMonthFilter || paymentDayFilter || paymentYearFilter) && (
+              <div className="bg-amber-50 border border-amber-200 p-4 rounded-2xl flex items-center justify-between text-xs text-amber-800">
+                <span>No se encontraron pagos para "<b>{paymentSearchTerm}</b>" en el período actual.</span>
+                <button
+                  onClick={() => {
+                    setPaymentMonthFilter('');
+                    setPaymentDayFilter('');
+                    setPaymentYearFilter('');
+                  }}
+                  className="bg-amber-600 text-white font-bold px-3 py-1.5 rounded-xl hover:bg-amber-700 transition-all text-xs"
+                >
+                  Buscar en todo el historial
+                </button>
+              </div>
+            )}
 
             {/* Mobile Cards View */}
             <div className="grid grid-cols-1 gap-4 lg:hidden">
@@ -2520,28 +2759,28 @@ export default function App() {
                   No se encontraron pagos con los filtros aplicados
                 </div>
               ) : (
-                filteredPayments.map((p, idx) => (
+                paginatedPayments.map((p, idx) => (
                   <div key={p.id} className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm space-y-4">
                     <div className="flex justify-between items-start">
                       <div className="flex items-start gap-3">
-                        <div className="text-[10px] font-black text-slate-200 mt-1 font-mono">
-                          {(filteredPayments.length - idx).toString().padStart(3, '0')}
+                        <div className="text-[10px] font-black text-slate-300 mt-1 font-mono">
+                          {(filteredPayments.length - ((currentPaymentPage - 1) * PAYMENTS_PER_PAGE + idx)).toString().padStart(3, '0')}
                         </div>
                         <div>
                           <h4 className="font-bold text-slate-900">{p.member_name}</h4>
-                              {p.category && p.category !== 'gym' && (
-                                <div className="flex gap-1 mb-1">
-                                  <span className={`text-[8px] font-black uppercase tracking-tighter px-1 rounded ${
-                                    p.category === 'personalized' ? 'bg-amber-50 text-amber-600' : 
-                                    p.category === 'nutrition' ? 'bg-emerald-50 text-emerald-600' :
-                                    p.category === 'personalized_nutrition' ? 'bg-indigo-50 text-indigo-600' : 'bg-blue-50 text-blue-600'
-                                  }`}>
-                                    {p.category === 'personalized' ? 'Personalizado' : 
-                                     p.category === 'nutrition' ? 'Sólo Nutri' : 
-                                     p.category === 'personalized_nutrition' ? 'Jorge + Nutri' : 'Kinetix + Nutri'}
-                                  </span>
-                                </div>
-                              )}
+                          {p.category && p.category !== 'gym' && (
+                            <div className="flex gap-1 mb-1">
+                              <span className={`text-[8px] font-black uppercase tracking-tighter px-1.5 py-0.5 rounded ${
+                                p.category === 'personalized' ? 'bg-amber-50 text-amber-600' : 
+                                p.category === 'nutrition' ? 'bg-emerald-50 text-emerald-600' :
+                                p.category === 'personalized_nutrition' ? 'bg-indigo-50 text-indigo-600' : 'bg-blue-50 text-blue-600'
+                              }`}>
+                                {p.category === 'personalized' ? 'Personalizado' : 
+                                 p.category === 'nutrition' ? 'Sólo Nutri' : 
+                                 p.category === 'personalized_nutrition' ? 'Jorge + Nutri' : 'Kinetix + Nutri'}
+                              </span>
+                            </div>
+                          )}
                           <p className="text-xs text-slate-400">
                             {(() => {
                               if (!p.payment_date) return 'Fecha desconocida';
@@ -2556,7 +2795,7 @@ export default function App() {
                       </span>
                     </div>
                     <div className="flex justify-between items-center">
-                      <span className="text-2xl font-black text-emerald-600">${(p.amount || 0).toFixed(2)}</span>
+                      <span className="text-2xl font-black text-emerald-600 font-mono">${(p.amount || 0).toFixed(2)}</span>
                       <div className="text-right">
                         <div className="text-[10px] text-slate-400 uppercase font-bold">Recibido por</div>
                         <div className="text-xs font-bold text-slate-600">{p.received_by}</div>
@@ -2597,18 +2836,19 @@ export default function App() {
               )}
             </div>
 
+            {/* Desktop Table View */}
             <div className="hidden lg:block bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
               <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/30">
                 <div>
-                  <h3 className="font-bold text-lg">Historial de Pagos</h3>
+                  <h3 className="font-bold text-lg text-slate-900">Historial de Pagos</h3>
                   <p className="text-sm text-slate-500">
-                    {filteredPayments.length} transacciones encontradas
+                    Mostrando {filteredPayments.length > 0 ? (currentPaymentPage - 1) * PAYMENTS_PER_PAGE + 1 : 0} a {Math.min(currentPaymentPage * PAYMENTS_PER_PAGE, filteredPayments.length)} de {filteredPayments.length} transacciones
                   </p>
                 </div>
                 <div className="bg-white px-6 py-3 rounded-2xl border border-slate-100 shadow-sm text-right">
-                  <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-0.5">Recaudación Total</div>
+                  <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-0.5">Recaudación Período</div>
                   <div className="text-2xl font-black text-emerald-600 font-mono">
-                    ${filteredPayments.reduce((acc, p) => acc + (Number(p.amount) || 0), 0).toFixed(2)}
+                    ${paymentStats.totalAmount.toFixed(2)}
                   </div>
                 </div>
               </div>
@@ -2634,13 +2874,13 @@ export default function App() {
                         </td>
                       </tr>
                     ) : (
-                      filteredPayments.map((p, idx) => (
+                      paginatedPayments.map((p, idx) => (
                         <tr key={p.id} className="hover:bg-slate-50 transition-all">
                           <td className="px-6 py-4 text-[10px] font-mono font-bold text-slate-300 text-center">
-                            {(filteredPayments.length - idx).toString().padStart(3, '0')}
+                            {(filteredPayments.length - ((currentPaymentPage - 1) * PAYMENTS_PER_PAGE + idx)).toString().padStart(3, '0')}
                           </td>
                           <td className="px-6 py-4 font-medium">
-                            <div>{p.member_name}</div>
+                            <div className="font-bold text-slate-900">{p.member_name}</div>
                             {p.category && p.category !== 'gym' && (
                               <div className={`text-[9px] font-black uppercase tracking-tighter inline-block px-1.5 py-0.5 rounded ${
                                 p.category === 'personalized' ? 'bg-amber-50 text-amber-600' : 
@@ -2669,7 +2909,7 @@ export default function App() {
                           <td className="px-6 py-4 text-xs text-slate-400 italic max-w-[150px] truncate" title={p.notes}>
                             {p.notes || '-'}
                           </td>
-                          <td className="px-6 py-4 text-sm text-slate-600">{p.received_by}</td>
+                          <td className="px-6 py-4 text-sm text-slate-600 font-medium">{p.received_by}</td>
                           <td className="px-6 py-4 text-right">
                             <div className="flex gap-2 justify-end">
                               <button 
@@ -2704,6 +2944,61 @@ export default function App() {
                 </table>
               </div>
             </div>
+
+            {/* Pagination Controls */}
+            {totalPaymentPages > 1 && (
+              <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-xs flex flex-col sm:flex-row items-center justify-between gap-3">
+                <div className="text-xs text-slate-500 font-medium">
+                  Página <span className="font-bold text-slate-900">{currentPaymentPage}</span> de <span className="font-bold text-slate-900">{totalPaymentPages}</span> ({filteredPayments.length} pagos en total)
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setPaymentPage(prev => Math.max(1, prev - 1))}
+                    disabled={currentPaymentPage === 1}
+                    className="flex items-center gap-1 px-3 py-1.5 rounded-xl border border-slate-200 text-xs font-bold text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+                  >
+                    <ChevronLeft size={14} />
+                    Anterior
+                  </button>
+
+                  <div className="flex gap-1">
+                    {Array.from({ length: Math.min(5, totalPaymentPages) }, (_, i) => {
+                      let pageNum = i + 1;
+                      if (totalPaymentPages > 5) {
+                        if (currentPaymentPage > 3) {
+                          pageNum = currentPaymentPage - 2 + i;
+                          if (pageNum > totalPaymentPages) {
+                            pageNum = totalPaymentPages - 4 + i;
+                          }
+                        }
+                      }
+                      return (
+                        <button
+                          key={pageNum}
+                          onClick={() => setPaymentPage(pageNum)}
+                          className={`w-8 h-8 rounded-xl text-xs font-bold transition-all ${
+                            currentPaymentPage === pageNum
+                              ? 'bg-blue-600 text-white shadow-xs'
+                              : 'bg-slate-50 text-slate-600 hover:bg-slate-100'
+                          }`}
+                        >
+                          {pageNum}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  <button
+                    onClick={() => setPaymentPage(prev => Math.min(totalPaymentPages, prev + 1))}
+                    disabled={currentPaymentPage === totalPaymentPages}
+                    className="flex items-center gap-1 px-3 py-1.5 rounded-xl border border-slate-200 text-xs font-bold text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+                  >
+                    Siguiente
+                    <ChevronRight size={14} />
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
