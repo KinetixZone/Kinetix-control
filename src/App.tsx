@@ -196,6 +196,9 @@ export default function App() {
   const [saleYearFilter, setSaleYearFilter] = useState('');
   const [analyticsMonthFilter, setAnalyticsMonthFilter] = useState(new Date().toISOString().slice(0, 7)); // Default to current month
   const [analyticsYearFilter, setAnalyticsYearFilter] = useState(new Date().getFullYear().toString());
+  const [dashboardFinanceView, setDashboardFinanceView] = useState<'both' | 'kinetix' | 'personalized' | 'total'>('both');
+  const [analyticsStreamFilter, setAnalyticsStreamFilter] = useState<'all' | 'kinetix' | 'personalized'>('all');
+  const [personalizedMonthFilter, setPersonalizedMonthFilter] = useState(new Date().toISOString().slice(0, 7));
   const [memberFilterTab, setMemberFilterTab] = useState<'all' | 'new' | 'active' | 'expired'>('all');
   const [memberServiceFilter, setMemberServiceFilter] = useState<string>('');
   const [memberPaymentDayFilter, setMemberPaymentDayFilter] = useState<string>('');
@@ -384,39 +387,113 @@ export default function App() {
       return matchMonth && matchYear;
     });
 
-    const income = (validPayments.reduce((acc, curr) => acc + (Number(curr.amount) || 0), 0)) +
-                   (validSales.reduce((acc, curr) => acc + (Number(curr.total_price) || 0), 0));
-    const cost = validExpenses.reduce((acc, curr) => acc + (Number(curr.amount) || 0), 0);
+    // 1. SOLO KINETIX (Membresías Gym + Visitas + Ventas Tienda/Suplementos)
+    const kinetixPayments = validPayments.filter(p => !p.category || p.category === 'gym' || p.category === 'gym_nutrition');
+    const kinetixIncome = kinetixPayments.reduce((acc, curr) => {
+      if (curr.category === 'gym_nutrition') {
+        const netGym = Math.max(0, (Number(curr.amount) || 0) - (Number(curr.nutritionist_commission) || 0));
+        return acc + netGym;
+      }
+      return acc + (Number(curr.amount) || 0);
+    }, 0) + (validSales.reduce((acc, curr) => acc + (Number(curr.total_price) || 0), 0));
+
+    const kinetixExpenses = validExpenses
+      .filter(e => e.category !== 'personalized' && e.category !== 'nutrition')
+      .reduce((acc, curr) => acc + (Number(curr.amount) || 0), 0);
+
+    const kinetixProfit = kinetixIncome - kinetixExpenses;
+
+    // 2. SOLO PERSONALIZADOS (Entrenamientos Personalizados Jorge / Team JG)
+    const personalizedPayments = validPayments.filter(p => p.category === 'personalized' || p.category === 'personalized_nutrition');
+    const personalizedIncome = personalizedPayments.reduce((acc, curr) => {
+      if (curr.category === 'personalized_nutrition') {
+        const netPers = Math.max(0, (Number(curr.amount) || 0) - (Number(curr.nutritionist_commission) || 0));
+        return acc + netPers;
+      }
+      return acc + (Number(curr.amount) || 0);
+    }, 0);
+
+    const personalizedExpenses = validExpenses
+      .filter(e => e.category === 'personalized')
+      .reduce((acc, curr) => acc + (Number(curr.amount) || 0), 0);
+
+    const personalizedProfit = personalizedIncome - personalizedExpenses;
+
+    // 3. SOLO NUTRICIÓN
+    const nutritionPayments = validPayments.filter(p => p.category === 'nutrition' || p.category === 'personalized_nutrition' || p.category === 'gym_nutrition');
+    const nutritionIncome = nutritionPayments.reduce((acc, curr) => {
+      if (curr.category === 'personalized_nutrition' || curr.category === 'gym_nutrition') {
+        return acc + (Number(curr.nutritionist_commission) || 0);
+      }
+      return acc + (Number(curr.amount) || 0);
+    }, 0);
+
+    const nutritionExpenses = validExpenses
+      .filter(e => e.category === 'nutrition')
+      .reduce((acc, curr) => acc + (Number(curr.amount) || 0), 0);
+
+    const nutritionProfit = nutritionIncome - nutritionExpenses;
+
+    // 4. TOTALES GENERALES (Consolidado)
+    const totalIncome = kinetixIncome + personalizedIncome + nutritionIncome;
+    const totalExpenses = kinetixExpenses + personalizedExpenses + nutritionExpenses;
+    const totalProfit = totalIncome - totalExpenses;
 
     return {
-      total_income: income,
-      total_expenses: cost,
-      profit: income - cost,
+      total_income: totalIncome,
+      total_expenses: totalExpenses,
+      profit: totalProfit,
+      kinetix_income: kinetixIncome,
+      kinetix_expenses: kinetixExpenses,
+      kinetix_profit: kinetixProfit,
+      kinetix_payments_count: kinetixPayments.length,
+      personalized_income: personalizedIncome,
+      personalized_expenses: personalizedExpenses,
+      personalized_profit: personalizedProfit,
+      personalized_payments_count: personalizedPayments.length,
+      nutrition_income: nutritionIncome,
+      nutrition_expenses: nutritionExpenses,
+      nutrition_profit: nutritionProfit,
       filteredExpenses: validExpenses
     };
   }, [payments, sales, expenses, analyticsMonthFilter, analyticsYearFilter]);
 
   const personalizedStats = useMemo(() => {
-    const pPayments = (payments || []).filter(p => p.category === 'personalized' || p.category === 'personalized_nutrition');
-    const pExpenses = (expenses || []).filter(e => e.category === 'personalized');
+    const pPayments = (payments || []).filter(p => {
+      const isMatch = p.category === 'personalized' || p.category === 'personalized_nutrition';
+      if (!isMatch) return false;
+      if (!personalizedMonthFilter) return true;
+      const d = String(p.payment_date || '');
+      return d.startsWith(personalizedMonthFilter);
+    });
+
+    const pExpenses = (expenses || []).filter(e => {
+      const isMatch = e.category === 'personalized';
+      if (!isMatch) return false;
+      if (!personalizedMonthFilter) return true;
+      const d = String(e.expense_date || '');
+      return d.startsWith(personalizedMonthFilter);
+    });
     
-    const income = pPayments.reduce((acc, curr) => acc + (Number(curr.amount) || 0), 0);
+    const grossIncome = pPayments.reduce((acc, curr) => acc + (Number(curr.amount) || 0), 0);
     const nutritionistCut = pPayments.reduce((acc, curr) => acc + (Number(curr.nutritionist_commission) || 0), 0);
     const nutritionistCutPaid = pPayments.filter(p => p.commission_paid).reduce((acc, curr) => acc + (Number(curr.nutritionist_commission) || 0), 0);
     const cost = pExpenses.reduce((acc, curr) => acc + (Number(curr.amount) || 0), 0);
+    const netIncome = grossIncome - nutritionistCut;
 
     return {
-      income,
+      income: grossIncome,
+      netIncome,
       nutritionistCut,
       nutritionistCutPaid,
       nutritionistCutPending: nutritionistCut - nutritionistCutPaid,
       expenses: cost,
-      profit: income - cost - nutritionistCut,
+      profit: netIncome - cost,
       payments: pPayments,
       expensesList: pExpenses,
       memberCount: members.filter(m => m.service_type === 'personalized' || m.service_type === 'personalized_nutrition').length
     };
-  }, [payments, expenses, members]);
+  }, [payments, expenses, members, personalizedMonthFilter]);
 
   const nutritionStats = useMemo(() => {
     const nPayments = (payments || []).filter(p => p.category === 'nutrition' || p.category === 'personalized_nutrition' || p.category === 'gym_nutrition');
@@ -896,11 +973,26 @@ export default function App() {
 
   const exportAnalyticsToExcel = () => {
     const dataToExport = [
-      { Concepto: 'Ingresos Totales (Pagos + Ventas)', Monto: financialStats.total_income },
-      { Concepto: 'Gastos Totales', Monto: financialStats.total_expenses },
-      { Concepto: 'Utilidad Neta', Monto: financialStats.profit },
-      { Concepto: 'Margen de Utilidad', Monto: financialStats.total_income > 0 ? ((financialStats.profit / financialStats.total_income) * 100).toFixed(2) + '%' : '0%' },
-      { Concepto: 'Periodo', Monto: analyticsMonthFilter || analyticsYearFilter || 'Todo el tiempo' }
+      { Concepto: '--- RESUMEN KINETIX (GIMNASIO & TIENDA) ---', Monto: '' },
+      { Concepto: 'Ingresos Solo Kinetix (Membresías + Ventas)', Monto: financialStats.kinetix_income || 0 },
+      { Concepto: 'Gastos Solo Kinetix (Renta, luz, equipo, etc.)', Monto: financialStats.kinetix_expenses || 0 },
+      { Concepto: 'Ganancia Neta Solo Kinetix', Monto: financialStats.kinetix_profit || 0 },
+      { Concepto: 'Margen Kinetix', Monto: (financialStats.kinetix_income || 0) > 0 ? (((financialStats.kinetix_profit || 0) / (financialStats.kinetix_income || 1)) * 100).toFixed(2) + '%' : '0%' },
+      { Concepto: '--- RESUMEN PERSONALIZADOS (TEAM JG) ---', Monto: '' },
+      { Concepto: 'Ingresos Solo Personalizados (Jorge)', Monto: financialStats.personalized_income || 0 },
+      { Concepto: 'Gastos Solo Personalizados', Monto: financialStats.personalized_expenses || 0 },
+      { Concepto: 'Ganancia Neta Solo Personalizados', Monto: financialStats.personalized_profit || 0 },
+      { Concepto: 'Margen Personalizados', Monto: (financialStats.personalized_income || 0) > 0 ? (((financialStats.personalized_profit || 0) / (financialStats.personalized_income || 1)) * 100).toFixed(2) + '%' : '0%' },
+      { Concepto: '--- RESUMEN NUTRICIÓN ---', Monto: '' },
+      { Concepto: 'Ingresos Nutrición (Consultas + Comisiones)', Monto: financialStats.nutrition_income || 0 },
+      { Concepto: 'Gastos Nutrición', Monto: financialStats.nutrition_expenses || 0 },
+      { Concepto: 'Ganancia Neta Nutrición', Monto: financialStats.nutrition_profit || 0 },
+      { Concepto: '--- CONSOLIDADO GENERAL ---', Monto: '' },
+      { Concepto: 'Ingresos Totales Consolidados', Monto: financialStats.total_income },
+      { Concepto: 'Gastos Totales Consolidados', Monto: financialStats.total_expenses },
+      { Concepto: 'Ganancia Neta Consolidada', Monto: financialStats.profit },
+      { Concepto: 'Margen General Consolidado', Monto: financialStats.total_income > 0 ? ((financialStats.profit / financialStats.total_income) * 100).toFixed(2) + '%' : '0%' },
+      { Concepto: 'Periodo Consultado', Monto: analyticsMonthFilter || analyticsYearFilter || 'Todo el tiempo' }
     ];
     handleExportExcel(dataToExport, `reporte_financiero_kinetix_${analyticsMonthFilter || analyticsYearFilter || 'general'}`);
   };
@@ -1962,47 +2054,258 @@ export default function App() {
             )}
             {/* Bento Grid Dashboard */}
             <div className="grid grid-cols-1 md:grid-cols-4 lg:grid-cols-6 gap-6">
-              {/* Financial Stats - Large Card */}
+              {/* Financial Stats - Side-by-Side Cards (Solo Kinetix vs Solo Personalizados) */}
               {(currentRole === 'Leslie' || currentRole === 'Jorge') && (
-                <div className="md:col-span-4 lg:col-span-3 bg-white p-8 rounded-[2.5rem] shadow-sm border border-slate-100 flex flex-col justify-between min-h-[300px]">
-                  <div>
-                    <div className="flex items-center justify-between mb-8">
-                      <div className="p-3 bg-indigo-50 text-indigo-600 rounded-2xl">
-                        <BarChart3 size={24} />
+                <div className="col-span-1 md:col-span-4 lg:col-span-6 bg-slate-50/80 p-6 sm:p-7 rounded-[2.5rem] border border-slate-200/80">
+                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="p-2 bg-indigo-600 text-white rounded-xl shadow-xs">
+                          <BarChart3 size={18} />
+                        </span>
+                        <h3 className="text-xl font-black text-slate-900 tracking-tight">Ganancia Neta por Servicio</h3>
                       </div>
-                      <div className="text-right">
-                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block">Resumen del Mes</span>
-                        <span className="text-xs font-bold text-indigo-600 uppercase">
-                          {new Date(analyticsMonthFilter + '-02').toLocaleString('es-ES', { month: 'long', year: 'numeric' })}
+                      <p className="text-xs text-slate-500 font-medium mt-1">
+                        Desglose independiente de <strong className="text-blue-600 font-bold">Solo Kinetix</strong> y <strong className="text-amber-600 font-bold">Solo Personalizados</strong>
+                      </p>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2">
+                      <div className="bg-white px-3 py-1.5 rounded-xl border border-slate-200 shadow-xs flex items-center gap-2 text-xs font-bold text-slate-700">
+                        <Calendar size={13} className="text-indigo-600" />
+                        <span className="capitalize">
+                          {analyticsMonthFilter ? new Date(analyticsMonthFilter + '-02').toLocaleString('es-ES', { month: 'long', year: 'numeric' }) : 'Todo el Periodo'}
                         </span>
                       </div>
-                    </div>
-                    <div className="space-y-1">
-                      <div className="text-sm text-slate-500 font-medium">Ganancia Neta</div>
-                      <div className={`text-5xl font-black tracking-tighter ${financialStats.profit >= 0 ? 'text-slate-900' : 'text-rose-600'}`}>
-                        ${(financialStats.profit || 0).toFixed(2)}
+
+                      {/* View selector */}
+                      <div className="bg-white p-1 rounded-xl border border-slate-200 shadow-xs flex items-center gap-1 text-[11px] font-bold">
+                        <button
+                          type="button"
+                          onClick={() => setDashboardFinanceView('both')}
+                          className={`px-3 py-1.5 rounded-lg transition-all ${dashboardFinanceView === 'both' ? 'bg-indigo-600 text-white shadow-xs font-black' : 'text-slate-600 hover:text-slate-900'}`}
+                        >
+                          Lado a Lado
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setDashboardFinanceView('kinetix')}
+                          className={`px-3 py-1.5 rounded-lg transition-all ${dashboardFinanceView === 'kinetix' ? 'bg-blue-600 text-white shadow-xs font-black' : 'text-slate-600 hover:text-slate-900'}`}
+                        >
+                          Solo Kinetix
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setDashboardFinanceView('personalized')}
+                          className={`px-3 py-1.5 rounded-lg transition-all ${dashboardFinanceView === 'personalized' ? 'bg-amber-600 text-white shadow-xs font-black' : 'text-slate-600 hover:text-slate-900'}`}
+                        >
+                          Solo Personalizados
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setDashboardFinanceView('total')}
+                          className={`px-3 py-1.5 rounded-lg transition-all ${dashboardFinanceView === 'total' ? 'bg-slate-900 text-white shadow-xs font-black' : 'text-slate-600 hover:text-slate-900'}`}
+                        >
+                          Total
+                        </button>
                       </div>
                     </div>
                   </div>
-                  <div className="grid grid-cols-2 gap-4 mt-8 pt-8 border-t border-slate-50">
-                    <div>
-                      <div className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider mb-1 flex items-center gap-1">
-                        <TrendingUp size={10} /> Ingresos
+
+                  {/* Financial Cards Grid */}
+                  <div className={`grid gap-6 ${dashboardFinanceView === 'both' ? 'grid-cols-1 lg:grid-cols-2' : 'grid-cols-1'}`}>
+                    {/* Card 1: Ganancia Neta Solo Kinetix */}
+                    {(dashboardFinanceView === 'both' || dashboardFinanceView === 'kinetix') && (
+                      <div className="bg-white p-7 rounded-[2rem] shadow-xs border border-blue-100 flex flex-col justify-between relative overflow-hidden group hover:border-blue-200 transition-all">
+                        <div className="absolute top-0 right-0 w-36 h-36 bg-blue-50/50 rounded-full -translate-y-12 translate-x-12 blur-2xl pointer-events-none" />
+                        <div>
+                          <div className="flex items-center justify-between mb-5">
+                            <div className="flex items-center gap-2.5">
+                              <div className="w-10 h-10 rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center font-bold">
+                                <Dumbbell size={20} />
+                              </div>
+                              <div>
+                                <span className="text-[10px] font-black text-blue-600 uppercase tracking-widest block">Gimnasio & Tienda</span>
+                                <span className="text-xs font-black text-slate-800">Solo Kinetix</span>
+                              </div>
+                            </div>
+                            <span className="text-[10px] font-black bg-blue-50 text-blue-700 px-2.5 py-1 rounded-full uppercase tracking-wider">
+                              Membresías + Visitas + Suplementos
+                            </span>
+                          </div>
+
+                          <div className="space-y-1">
+                            <div className="text-xs text-slate-500 font-bold uppercase tracking-wider flex items-center gap-1.5">
+                              Ganancia Neta Solo Kinetix
+                            </div>
+                            <div className={`text-4xl sm:text-5xl font-black tracking-tight font-mono ${(financialStats.kinetix_profit || 0) >= 0 ? 'text-slate-900' : 'text-rose-600'}`}>
+                              ${(financialStats.kinetix_profit || 0).toFixed(2)}
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-4 mt-6 pt-6 border-t border-slate-100">
+                          <div className="bg-slate-50/80 p-3.5 rounded-2xl">
+                            <div className="text-[10px] font-black text-emerald-600 uppercase tracking-wider mb-0.5 flex items-center gap-1">
+                              <TrendingUp size={11} /> Ingresos Kinetix
+                            </div>
+                            <div className="text-lg font-bold text-slate-900 font-mono">${(financialStats.kinetix_income || 0).toFixed(2)}</div>
+                            <div className="text-[9px] text-slate-400 font-semibold mt-0.5">Gym + Suplementos</div>
+                          </div>
+                          <div className="bg-slate-50/80 p-3.5 rounded-2xl">
+                            <div className="text-[10px] font-black text-rose-600 uppercase tracking-wider mb-0.5 flex items-center gap-1">
+                              <TrendingDown size={11} /> Gastos Kinetix
+                            </div>
+                            <div className="text-lg font-bold text-slate-900 font-mono">${(financialStats.kinetix_expenses || 0).toFixed(2)}</div>
+                            <div className="text-[9px] text-slate-400 font-semibold mt-0.5">Renta, luz, sueldos, equipo</div>
+                          </div>
+                        </div>
+
+                        <div className="mt-4 flex items-center justify-between text-[11px] font-bold text-slate-500 pt-3 border-t border-slate-50">
+                          <span>Margen: {(financialStats.kinetix_income || 0) > 0 ? (((financialStats.kinetix_profit || 0) / (financialStats.kinetix_income || 1)) * 100).toFixed(1) : 0}%</span>
+                          <span className="text-blue-600 font-semibold">{financialStats.kinetix_payments_count || 0} pagos en periodo</span>
+                        </div>
                       </div>
-                      <div className="text-xl font-bold text-slate-900 font-mono">${(financialStats.total_income || 0).toFixed(2)}</div>
-                    </div>
-                    <div>
-                      <div className="text-[10px] font-bold text-rose-600 uppercase tracking-wider mb-1 flex items-center gap-1">
-                        <TrendingDown size={10} /> Gastos
+                    )}
+
+                    {/* Card 2: Ganancia Neta Solo Personalizados */}
+                    {(dashboardFinanceView === 'both' || dashboardFinanceView === 'personalized') && (
+                      <div className="bg-white p-7 rounded-[2rem] shadow-xs border border-amber-200 flex flex-col justify-between relative overflow-hidden group hover:border-amber-300 transition-all">
+                        <div className="absolute top-0 right-0 w-36 h-36 bg-amber-50/70 rounded-full -translate-y-12 translate-x-12 blur-2xl pointer-events-none" />
+                        <div>
+                          <div className="flex items-center justify-between mb-5">
+                            <div className="flex items-center gap-2.5">
+                              <div className="w-10 h-10 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center font-bold">
+                                <Fingerprint size={20} />
+                              </div>
+                              <div>
+                                <span className="text-[10px] font-black text-amber-600 uppercase tracking-widest block">Team JG</span>
+                                <span className="text-xs font-black text-slate-800">Solo Personalizados</span>
+                              </div>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => setActiveTab('personalized')}
+                              className="text-[10px] font-black bg-amber-100/80 hover:bg-amber-200 text-amber-900 px-3 py-1 rounded-full uppercase tracking-wider flex items-center gap-1 transition-all"
+                            >
+                              Ver Apartado <ChevronRight size={12} />
+                            </button>
+                          </div>
+
+                          <div className="space-y-1">
+                            <div className="text-xs text-slate-500 font-bold uppercase tracking-wider flex items-center gap-1.5">
+                              Ganancia Neta Personalizados
+                            </div>
+                            <div className={`text-4xl sm:text-5xl font-black tracking-tight font-mono ${(financialStats.personalized_profit || 0) >= 0 ? 'text-amber-600' : 'text-rose-600'}`}>
+                              ${(financialStats.personalized_profit || 0).toFixed(2)}
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-4 mt-6 pt-6 border-t border-slate-100">
+                          <div className="bg-amber-50/50 p-3.5 rounded-2xl">
+                            <div className="text-[10px] font-black text-emerald-600 uppercase tracking-wider mb-0.5 flex items-center gap-1">
+                              <TrendingUp size={11} /> Ingresos Pers.
+                            </div>
+                            <div className="text-lg font-bold text-slate-900 font-mono">${(financialStats.personalized_income || 0).toFixed(2)}</div>
+                            <div className="text-[9px] text-slate-400 font-semibold mt-0.5">Alumnos en personalizado</div>
+                          </div>
+                          <div className="bg-amber-50/50 p-3.5 rounded-2xl">
+                            <div className="text-[10px] font-black text-rose-600 uppercase tracking-wider mb-0.5 flex items-center gap-1">
+                              <TrendingDown size={11} /> Gastos Pers.
+                            </div>
+                            <div className="text-lg font-bold text-slate-900 font-mono">${(financialStats.personalized_expenses || 0).toFixed(2)}</div>
+                            <div className="text-[9px] text-slate-400 font-semibold mt-0.5">Gastos específicos coach</div>
+                          </div>
+                        </div>
+
+                        <div className="mt-4 flex items-center justify-between text-[11px] font-bold text-slate-500 pt-3 border-t border-slate-50">
+                          <span>Alumnos activos: {members.filter(m => m.service_type === 'personalized' || m.service_type === 'personalized_nutrition').length}</span>
+                          <span className="text-amber-700 font-semibold">{financialStats.personalized_payments_count || 0} pagos en periodo</span>
+                        </div>
                       </div>
-                      <div className="text-xl font-bold text-slate-900 font-mono">${(financialStats.total_expenses || 0).toFixed(2)}</div>
-                    </div>
+                    )}
+
+                    {/* Card 3: Total Consolidado (when view is total) */}
+                    {dashboardFinanceView === 'total' && (
+                      <div className="bg-slate-900 text-white p-7 rounded-[2rem] shadow-xs flex flex-col justify-between relative overflow-hidden">
+                        <div>
+                          <div className="flex items-center justify-between mb-5">
+                            <div className="flex items-center gap-2.5">
+                              <div className="w-10 h-10 rounded-2xl bg-white/10 text-white flex items-center justify-center font-bold">
+                                <Wallet size={20} />
+                              </div>
+                              <div>
+                                <span className="text-[10px] font-black text-indigo-300 uppercase tracking-widest block">Consolidado Total</span>
+                                <span className="text-xs font-bold text-slate-200">Kinetix + Personalizados</span>
+                              </div>
+                            </div>
+                            <span className="text-[10px] font-black bg-white/10 text-white px-2.5 py-1 rounded-full uppercase tracking-wider">
+                              Todo Incluido
+                            </span>
+                          </div>
+
+                          <div className="space-y-1">
+                            <div className="text-xs text-slate-400 font-bold uppercase tracking-wider">
+                              Ganancia Neta Total
+                            </div>
+                            <div className="text-4xl sm:text-5xl font-black tracking-tight font-mono text-white">
+                              ${(financialStats.profit || 0).toFixed(2)}
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-3 gap-3 mt-6 pt-6 border-t border-white/10">
+                          <div className="bg-white/5 p-3 rounded-2xl text-center">
+                            <div className="text-[9px] font-black text-blue-300 uppercase">Solo Kinetix</div>
+                            <div className="text-sm font-bold font-mono mt-0.5">${(financialStats.kinetix_profit || 0).toFixed(2)}</div>
+                          </div>
+                          <div className="bg-white/5 p-3 rounded-2xl text-center">
+                            <div className="text-[9px] font-black text-amber-300 uppercase">Personalizados</div>
+                            <div className="text-sm font-bold font-mono mt-0.5">${(financialStats.personalized_profit || 0).toFixed(2)}</div>
+                          </div>
+                          <div className="bg-white/5 p-3 rounded-2xl text-center">
+                            <div className="text-[9px] font-black text-emerald-300 uppercase">Nutrición</div>
+                            <div className="text-sm font-bold font-mono mt-0.5">${(financialStats.nutrition_profit || 0).toFixed(2)}</div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   </div>
+
+                  {/* Bottom Combined Strip when looking at Both side-by-side */}
+                  {dashboardFinanceView === 'both' && (
+                    <div className="mt-4 bg-white px-5 py-3 rounded-2xl border border-slate-200/80 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
+                      <div className="flex items-center gap-2">
+                        <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                        <span className="text-slate-500 font-bold">Ganancia Total Consolidada (Kinetix + Personalizados):</span>
+                        <span className="font-black text-slate-900 font-mono text-sm">${(financialStats.profit || 0).toFixed(2)}</span>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-3 text-[11px] font-bold">
+                        <span className="text-blue-600">Kinetix: ${(financialStats.kinetix_profit || 0).toFixed(2)}</span>
+                        <span className="text-slate-300">|</span>
+                        <span className="text-amber-600">Personalizados: ${(financialStats.personalized_profit || 0).toFixed(2)}</span>
+                        {financialStats.nutrition_profit !== 0 && (
+                          <>
+                            <span className="text-slate-300">|</span>
+                            <span className="text-emerald-600">Nutrición: ${(financialStats.nutrition_profit || 0).toFixed(2)}</span>
+                          </>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => setActiveTab('analytics')}
+                          className="ml-2 text-indigo-600 hover:underline flex items-center gap-0.5"
+                        >
+                          Ver reportes <ChevronRight size={12} />
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 
               {/* Members Stats - Bento Style */}
-              <div className="md:col-span-2 lg:col-span-3 grid grid-cols-1 sm:grid-cols-2 gap-6">
+              <div className="col-span-1 md:col-span-4 lg:col-span-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
                 <div className="bg-white p-6 rounded-[2rem] shadow-sm border border-slate-100 flex flex-col justify-between">
                   <div className="p-2 bg-blue-50 text-blue-600 rounded-xl w-fit mb-4">
                     <Users size={20} />
@@ -3472,32 +3775,67 @@ export default function App() {
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
               <div className="bg-white p-8 rounded-3xl shadow-sm border border-slate-100">
-                <h3 className="text-xl font-bold mb-6 flex items-center justify-between">
-                  <span>Balance General</span>
-                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest bg-slate-50 px-3 py-1 rounded-full">
-                    {(() => {
-                      if (!analyticsMonthFilter) return analyticsYearFilter || 'Todo el tiempo';
-                      try {
-                        const [y, m] = analyticsMonthFilter.split('-');
-                        if (!y || !m) return analyticsMonthFilter;
-                        return new Date(parseInt(y), parseInt(m)-1).toLocaleString('es-ES', { month: 'long', year: 'numeric' });
-                      } catch (e) {
-                        return analyticsMonthFilter;
-                      }
-                    })()}
-                  </span>
-                </h3>
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
+                  <div>
+                    <h3 className="text-xl font-bold">Balance Financiero</h3>
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest bg-slate-50 px-3 py-1 rounded-full inline-block mt-1">
+                      {(() => {
+                        if (!analyticsMonthFilter) return analyticsYearFilter || 'Todo el tiempo';
+                        try {
+                          const [y, m] = analyticsMonthFilter.split('-');
+                          if (!y || !m) return analyticsMonthFilter;
+                          return new Date(parseInt(y), parseInt(m)-1).toLocaleString('es-ES', { month: 'long', year: 'numeric' });
+                        } catch (e) {
+                          return analyticsMonthFilter;
+                        }
+                      })()}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl text-[10px] font-black">
+                    <button
+                      type="button"
+                      onClick={() => setAnalyticsStreamFilter('all')}
+                      className={`px-2.5 py-1 rounded-lg transition-all ${analyticsStreamFilter === 'all' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-500 hover:text-slate-800'}`}
+                    >
+                      Consolidado
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setAnalyticsStreamFilter('kinetix')}
+                      className={`px-2.5 py-1 rounded-lg transition-all ${analyticsStreamFilter === 'kinetix' ? 'bg-blue-600 text-white shadow-xs' : 'text-slate-500 hover:text-slate-800'}`}
+                    >
+                      Solo Kinetix
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setAnalyticsStreamFilter('personalized')}
+                      className={`px-2.5 py-1 rounded-lg transition-all ${analyticsStreamFilter === 'personalized' ? 'bg-amber-600 text-white shadow-xs' : 'text-slate-500 hover:text-slate-800'}`}
+                    >
+                      Personalizados
+                    </button>
+                  </div>
+                </div>
+
                 <div className="h-80">
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart
-                      data={[
-                        { name: 'Ingresos', valor: financialStats.total_income, color: '#2563eb' },
-                        { name: 'Gastos', valor: financialStats.total_expenses, color: '#e11d48' },
-                        { name: 'Utilidad', valor: financialStats.profit, color: '#059669' }
+                      data={analyticsStreamFilter === 'kinetix' ? [
+                        { name: 'Ingresos Kinetix', valor: financialStats.kinetix_income || 0, color: '#2563eb' },
+                        { name: 'Gastos Kinetix', valor: financialStats.kinetix_expenses || 0, color: '#e11d48' },
+                        { name: 'Ganancia Kinetix', valor: financialStats.kinetix_profit || 0, color: '#059669' }
+                      ] : analyticsStreamFilter === 'personalized' ? [
+                        { name: 'Ingresos Pers.', valor: financialStats.personalized_income || 0, color: '#d97706' },
+                        { name: 'Gastos Pers.', valor: financialStats.personalized_expenses || 0, color: '#e11d48' },
+                        { name: 'Ganancia Pers.', valor: financialStats.personalized_profit || 0, color: '#10b981' }
+                      ] : [
+                        { name: 'Ingresos Totales', valor: financialStats.total_income, color: '#2563eb' },
+                        { name: 'Gastos Totales', valor: financialStats.total_expenses, color: '#e11d48' },
+                        { name: 'Utilidad Neta', valor: financialStats.profit, color: '#059669' }
                       ]}
                     >
                       <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                      <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 12 }} />
+                      <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 11 }} />
                       <YAxis axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 12 }} />
                       <Tooltip 
                         contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
@@ -3505,7 +3843,12 @@ export default function App() {
                       />
                       <Bar dataKey="valor" radius={[8, 8, 0, 0]}>
                         {[0, 1, 2].map((entry, index) => (
-                          <Cell key={`cell-${index}`} fill={index === 0 ? '#2563eb' : index === 1 ? '#e11d48' : '#059669'} />
+                          <Cell 
+                            key={`cell-${index}`} 
+                            fill={index === 0 
+                              ? (analyticsStreamFilter === 'personalized' ? '#d97706' : '#2563eb') 
+                              : index === 1 ? '#e11d48' : '#059669'} 
+                          />
                         ))}
                       </Bar>
                     </BarChart>
@@ -3519,8 +3862,8 @@ export default function App() {
                   <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
                       <Pie
-                        data={['rent', 'utilities', 'equipment', 'salary', 'other'].map(cat => ({
-                          name: cat.toUpperCase(),
+                        data={['rent', 'utilities', 'equipment', 'salary', 'personalized', 'nutrition', 'other'].map(cat => ({
+                          name: cat === 'personalized' ? 'PERS. (JORGE)' : cat === 'nutrition' ? 'NUTRICIÓN' : cat.toUpperCase(),
                           value: financialStats.filteredExpenses.filter(e => e.category === cat).reduce((acc, curr) => acc + curr.amount, 0)
                         })).filter(d => d.value > 0)}
                         cx="50%"
@@ -3530,7 +3873,7 @@ export default function App() {
                         paddingAngle={5}
                         dataKey="value"
                       >
-                        {['#6366f1', '#f59e0b', '#ec4899', '#10b981', '#64748b'].map((color, index) => (
+                        {['#6366f1', '#f59e0b', '#ec4899', '#10b981', '#f97316', '#14b8a6', '#64748b'].map((color, index) => (
                           <Cell key={`cell-${index}`} fill={color} />
                         ))}
                       </Pie>
@@ -3547,34 +3890,97 @@ export default function App() {
             <div className="bg-white p-8 rounded-3xl shadow-sm border border-slate-100">
               <div className="flex flex-col md:flex-row md:items-center justify-between mb-8 gap-4">
                 <div>
-                  <h3 className="text-xl font-bold">Resumen de Rentabilidad</h3>
-                  <p className="text-slate-500">Análisis detallado de la salud financiera de Kinetix</p>
+                  <h3 className="text-xl font-bold">Resumen de Rentabilidad Separado</h3>
+                  <p className="text-slate-500">Comparativa directa de rentabilidad entre Solo Kinetix y Solo Personalizados</p>
                 </div>
                 <div className="bg-indigo-50 px-6 py-3 rounded-2xl border border-indigo-100">
-                  <div className="text-[10px] font-black text-indigo-400 uppercase tracking-widest mb-0.5 text-center">Ganancia Total Periodo</div>
+                  <div className="text-[10px] font-black text-indigo-400 uppercase tracking-widest mb-0.5 text-center">Ganancia Neta Total Periodo</div>
                   <div className="text-3xl font-black text-indigo-700 font-mono text-center">
                     ${financialStats.profit.toFixed(2)}
                   </div>
                 </div>
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <div className="p-6 bg-blue-50 rounded-2xl">
-                  <div className="text-blue-600 text-sm font-bold uppercase mb-1">Margen de Utilidad</div>
-                  <div className="text-2xl font-bold text-blue-900">
-                    {financialStats.total_income > 0 
-                      ? ((financialStats.profit / financialStats.total_income) * 100).toFixed(1)
-                      : 0}%
+
+              {/* 3 Dedicated Summary Cards */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+                {/* 1. Solo Kinetix */}
+                <div className="p-6 bg-blue-50/70 border border-blue-100 rounded-3xl relative overflow-hidden">
+                  <div className="flex items-center justify-between mb-3">
+                    <span className="text-[10px] font-black uppercase tracking-wider text-blue-600 bg-blue-100 px-2.5 py-1 rounded-full">
+                      Solo Kinetix (Gym & Tienda)
+                    </span>
+                    <Dumbbell size={18} className="text-blue-500" />
+                  </div>
+                  <div className="text-xs text-slate-500 font-bold uppercase mb-1">Ganancia Neta Kinetix</div>
+                  <div className="text-3xl font-black text-blue-950 font-mono">
+                    ${(financialStats.kinetix_profit || 0).toFixed(2)}
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 mt-4 pt-4 border-t border-blue-200/50 text-xs">
+                    <div>
+                      <span className="text-[10px] text-slate-400 block font-bold">Ingresos Gym</span>
+                      <span className="font-bold text-slate-800 font-mono">${(financialStats.kinetix_income || 0).toFixed(2)}</span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-slate-400 block font-bold">Gastos Gym</span>
+                      <span className="font-bold text-slate-800 font-mono">${(financialStats.kinetix_expenses || 0).toFixed(2)}</span>
+                    </div>
+                  </div>
+                  <div className="mt-3 text-[10px] font-bold text-blue-700">
+                    Margen: {(financialStats.kinetix_income || 0) > 0 ? (((financialStats.kinetix_profit || 0) / (financialStats.kinetix_income || 1)) * 100).toFixed(1) : 0}%
                   </div>
                 </div>
-                <div className="p-6 bg-emerald-50 rounded-2xl">
-                  <div className="text-emerald-600 text-sm font-bold uppercase mb-1">Ingreso Promedio</div>
-                  <div className="text-2xl font-bold text-emerald-900">
-                    ${members.length > 0 ? (financialStats.total_income / members.length).toFixed(2) : 0}
+
+                {/* 2. Solo Personalizados */}
+                <div className="p-6 bg-amber-50/70 border border-amber-200 rounded-3xl relative overflow-hidden">
+                  <div className="flex items-center justify-between mb-3">
+                    <span className="text-[10px] font-black uppercase tracking-wider text-amber-700 bg-amber-100 px-2.5 py-1 rounded-full">
+                      Solo Personalizados (Jorge)
+                    </span>
+                    <Fingerprint size={18} className="text-amber-500" />
+                  </div>
+                  <div className="text-xs text-slate-500 font-bold uppercase mb-1">Ganancia Neta Personalizados</div>
+                  <div className="text-3xl font-black text-amber-950 font-mono">
+                    ${(financialStats.personalized_profit || 0).toFixed(2)}
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 mt-4 pt-4 border-t border-amber-200/50 text-xs">
+                    <div>
+                      <span className="text-[10px] text-slate-400 block font-bold">Ingresos Coach</span>
+                      <span className="font-bold text-slate-800 font-mono">${(financialStats.personalized_income || 0).toFixed(2)}</span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-slate-400 block font-bold">Gastos Coach</span>
+                      <span className="font-bold text-slate-800 font-mono">${(financialStats.personalized_expenses || 0).toFixed(2)}</span>
+                    </div>
+                  </div>
+                  <div className="mt-3 text-[10px] font-bold text-amber-700">
+                    Margen: {(financialStats.personalized_income || 0) > 0 ? (((financialStats.personalized_profit || 0) / (financialStats.personalized_income || 1)) * 100).toFixed(1) : 0}%
                   </div>
                 </div>
-                <div className="p-6 bg-slate-50 rounded-2xl">
-                  <div className="text-slate-600 text-sm font-bold uppercase mb-1">Total Miembros</div>
-                  <div className="text-2xl font-bold text-slate-900">{members.length}</div>
+
+                {/* 3. Margen y Miembros */}
+                <div className="p-6 bg-slate-50 border border-slate-200 rounded-3xl flex flex-col justify-between">
+                  <div>
+                    <div className="text-slate-500 text-xs font-bold uppercase mb-1">Margen General de Utilidad</div>
+                    <div className="text-3xl font-black text-slate-900 font-mono">
+                      {financialStats.total_income > 0 
+                        ? ((financialStats.profit / financialStats.total_income) * 100).toFixed(1)
+                        : 0}%
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 mt-4 pt-4 border-t border-slate-200 text-xs">
+                    <div>
+                      <span className="text-[10px] text-slate-400 block font-bold">Total Ingresos</span>
+                      <span className="font-bold text-slate-800 font-mono">${(financialStats.total_income || 0).toFixed(2)}</span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-slate-400 block font-bold">Total Gastos</span>
+                      <span className="font-bold text-slate-800 font-mono">${(financialStats.total_expenses || 0).toFixed(2)}</span>
+                    </div>
+                  </div>
+                  <div className="mt-3 text-[10px] font-bold text-slate-500 flex justify-between">
+                    <span>Miembros: {members.length}</span>
+                    <span>Ingreso prom: ${(members.length > 0 ? (financialStats.total_income / members.length) : 0).toFixed(2)}</span>
+                  </div>
                 </div>
               </div>
             </div>
@@ -4182,9 +4588,9 @@ export default function App() {
                         setNewMember({ ...newMember, service_type: 'personalized' });
                         setShowAddMember(true);
                     }}
-                    className="bg-white/20 hover:bg-white/30 backdrop-blur-md px-6 py-3 rounded-2xl font-bold transition-all flex items-center gap-2 border border-white/20"
+                    className="bg-white/20 hover:bg-white/30 backdrop-blur-md px-5 py-3 rounded-2xl font-bold transition-all flex items-center gap-2 border border-white/20"
                    >
-                     <Plus size={20} />
+                     <Plus size={18} />
                      Nuevo Alumno
                    </button>
                    <button 
@@ -4192,13 +4598,53 @@ export default function App() {
                         setNewPayment({ ...newPayment, category: 'personalized' });
                         setShowAddPayment(true);
                     }}
-                    className="bg-white text-amber-600 px-6 py-3 rounded-2xl font-bold transition-all shadow-lg hover:bg-amber-50 flex items-center gap-2"
+                    className="bg-white text-amber-600 px-5 py-3 rounded-2xl font-bold transition-all shadow-lg hover:bg-amber-50 flex items-center gap-2"
                    >
-                     <Receipt size={20} />
+                     <Receipt size={18} />
                      Registrar Pago
+                   </button>
+                   <button 
+                    onClick={() => {
+                        setNewExpense({ description: '', amount: 0, category: 'personalized', created_by: currentRole || '' });
+                        setShowAddExpense(true);
+                    }}
+                    className="bg-white/20 hover:bg-white/30 backdrop-blur-md px-5 py-3 rounded-2xl font-bold transition-all flex items-center gap-2 border border-white/20"
+                   >
+                     <TrendingDown size={18} />
+                     Gasto Coach
                    </button>
                 </div>
                </div>
+            </div>
+
+            {/* Filter Bar for Personalized Section */}
+            <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-xs flex flex-wrap items-center justify-between gap-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-xs font-black text-slate-400 uppercase tracking-wider">Periodo Contable:</span>
+                <input 
+                  type="month"
+                  className="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 outline-none focus:ring-2 focus:ring-amber-500/20"
+                  value={personalizedMonthFilter}
+                  onChange={e => setPersonalizedMonthFilter(e.target.value)}
+                />
+                <button
+                  type="button"
+                  onClick={() => setPersonalizedMonthFilter(new Date().toISOString().slice(0, 7))}
+                  className="text-xs text-amber-600 font-bold hover:underline"
+                >
+                  Mes Actual
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPersonalizedMonthFilter('')}
+                  className="text-xs text-slate-400 font-bold hover:underline"
+                >
+                  Ver Todo el Histórico
+                </button>
+              </div>
+              <div className="text-xs font-bold text-amber-700 bg-amber-50 px-3 py-1 rounded-xl">
+                {personalizedMonthFilter ? `Filtrando: ${new Date(personalizedMonthFilter + '-02').toLocaleString('es-ES', { month: 'long', year: 'numeric' })}` : 'Histórico Completo (Sin filtro)'}
+              </div>
             </div>
 
             {/* Stats Cards */}
@@ -4209,38 +4655,42 @@ export default function App() {
                   </div>
                   <p className="text-sm font-bold text-slate-400 uppercase tracking-wider">Alumnos</p>
                   <h4 className="text-3xl font-black text-slate-900 mt-1">{personalizedStats.memberCount}</h4>
+                  <p className="text-[10px] text-slate-400 font-semibold mt-1">Activos en personalizado</p>
                </div>
                <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm col-span-1">
                   <div className="w-12 h-12 bg-emerald-50 text-emerald-600 rounded-2xl flex items-center justify-center mb-4">
                     <TrendingUp size={24} />
                   </div>
-                  <p className="text-sm font-bold text-slate-400 uppercase tracking-wider">Ingresos</p>
+                  <p className="text-sm font-bold text-slate-400 uppercase tracking-wider">Ingresos Brutos</p>
                   <h4 className="text-3xl font-black text-slate-900 mt-1">${personalizedStats.income.toFixed(2)}</h4>
+                  <p className="text-[10px] text-emerald-600 font-bold mt-1">Neto Coach: ${personalizedStats.netIncome.toFixed(2)}</p>
                </div>
                <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm col-span-1">
                   <div className="w-12 h-12 bg-rose-50 text-rose-600 rounded-2xl flex items-center justify-center mb-4">
                     <TrendingDown size={24} />
                   </div>
-                  <p className="text-sm font-bold text-slate-400 uppercase tracking-wider">Gastos</p>
+                  <p className="text-sm font-bold text-slate-400 uppercase tracking-wider">Gastos Coach</p>
                   <h4 className="text-3xl font-black text-slate-900 mt-1">${personalizedStats.expenses.toFixed(2)}</h4>
+                  <p className="text-[10px] text-slate-400 font-semibold mt-1">Gastos exclusivos servicio</p>
                </div>
                <div className="bg-white p-6 rounded-3xl border border-emerald-100 shadow-sm col-span-1 relative">
                   <div className="w-12 h-12 bg-emerald-50 text-emerald-600 rounded-2xl flex items-center justify-center mb-4">
                     <Apple size={24} />
                   </div>
-                  <p className="text-sm font-bold text-emerald-400 uppercase tracking-wider">A Nutrióloga</p>
+                  <p className="text-sm font-bold text-emerald-600 uppercase tracking-wider">A Nutrióloga</p>
                   <h4 className="text-3xl font-black text-emerald-900 mt-1">${personalizedStats.nutritionistCut.toFixed(2)}</h4>
                   <div className="flex gap-2 mt-2">
                     <span className="text-[10px] font-bold text-blue-600">Pagado: ${personalizedStats.nutritionistCutPaid.toFixed(2)}</span>
                     <span className="text-[10px] font-bold text-rose-600 underline">Deuda: ${personalizedStats.nutritionistCutPending.toFixed(2)}</span>
                   </div>
                </div>
-               <div className="bg-gradient-to-br from-indigo-500 to-purple-600 p-6 rounded-3xl text-white shadow-lg col-span-1 sm:col-span-2 lg:col-span-1">
+               <div className="bg-gradient-to-br from-amber-500 via-orange-500 to-amber-600 p-6 rounded-3xl text-white shadow-lg col-span-1 sm:col-span-2 lg:col-span-1">
                   <div className="w-12 h-12 bg-white/20 rounded-2xl flex items-center justify-center mb-4">
                     <Wallet size={24} />
                   </div>
-                  <p className="text-sm font-bold text-indigo-100 uppercase tracking-wider">Utilidad Jorge</p>
-                  <h4 className="text-3xl font-black mt-1">${personalizedStats.profit.toFixed(2)}</h4>
+                  <p className="text-xs font-black text-amber-100 uppercase tracking-wider">Ganancia Neta Personalizados</p>
+                  <h4 className="text-3xl font-black mt-1 font-mono">${personalizedStats.profit.toFixed(2)}</h4>
+                  <p className="text-[11px] text-amber-100/90 font-semibold mt-1">Utilidad Neta (Team JG)</p>
                </div>
             </div>
 
@@ -5109,11 +5559,13 @@ export default function App() {
                       value={newExpense.category}
                       onChange={e => setNewExpense({...newExpense, category: e.target.value})}
                     >
-                      <option value="rent">Renta</option>
-                      <option value="utilities">Servicios (Luz/Agua)</option>
-                      <option value="equipment">Equipo</option>
-                      <option value="salary">Sueldos</option>
-                      <option value="other">Otro</option>
+                      <option value="rent">Renta (Kinetix)</option>
+                      <option value="utilities">Servicios - Luz/Agua (Kinetix)</option>
+                      <option value="equipment">Equipo (Kinetix)</option>
+                      <option value="salary">Sueldos (Kinetix)</option>
+                      <option value="personalized">Entrenamiento Personalizado (Jorge)</option>
+                      <option value="nutrition">Nutrición</option>
+                      <option value="other">Otro Gasto (Kinetix)</option>
                     </select>
                   </div>
                 </div>

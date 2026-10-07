@@ -43,6 +43,16 @@ export interface FinancialStats {
   total_income: number;
   total_expenses: number;
   profit: number;
+  kinetix_income?: number;
+  kinetix_expenses?: number;
+  kinetix_profit?: number;
+  personalized_income?: number;
+  personalized_expenses?: number;
+  personalized_profit?: number;
+  nutrition_income?: number;
+  nutrition_expenses?: number;
+  nutrition_profit?: number;
+  filteredExpenses?: Expense[];
 }
 
 export interface InventoryItem {
