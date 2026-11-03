@@ -39,7 +39,10 @@ import {
   Apple,
   Download,
   UserCheck,
-  Check as CheckIcon
+  Check as CheckIcon,
+  Eye,
+  EyeOff,
+  Copy
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
@@ -161,6 +164,12 @@ export default function App() {
   const [sales, setSales] = useState<any[]>([]);
   const [users, setUsers] = useState<any[]>([]);
   const [selectedUserForPin, setSelectedUserForPin] = useState<string | null>(null);
+  const [showAllPins, setShowAllPins] = useState(false);
+  const [revealedPins, setRevealedPins] = useState<Record<string, boolean>>({});
+
+  const togglePinVisibility = (username: string) => {
+    setRevealedPins(prev => ({ ...prev, [username]: !prev[username] }));
+  };
   const [paymentAlerts, setPaymentAlerts] = useState<any[]>([]);
   const [birthdayAlerts, setBirthdayAlerts] = useState<any[]>([]);
   const [activeTab, setActiveTab] = useState<'dashboard' | 'members' | 'payments' | 'expenses' | 'analytics' | 'attendance' | 'inventory' | 'users' | 'sales' | 'personalized' | 'nutrition' | 'supplements'>('dashboard');
@@ -247,7 +256,7 @@ export default function App() {
 
   useEffect(() => {
     // Load users list for login dropdown & filter
-    supabase.from('users').select('id, username, role').order('id').then(({ data }) => {
+    supabase.from('users').select('id, username, role, pin').order('id').then(({ data }) => {
       if (data && data.length > 0) {
         setUsers(data);
       }
@@ -690,7 +699,7 @@ export default function App() {
       setPaymentAlerts(expiringAlerts);
       
       // 8. Users
-      const { data: usersData, error: uError } = await supabase.from('users').select('id, username, role').order('id');
+      const { data: usersData, error: uError } = await supabase.from('users').select('id, username, role, pin').order('id');
       if (!uError && usersData) {
         setUsers(usersData);
       }
@@ -1652,6 +1661,7 @@ export default function App() {
 
       onAddToast(`PIN de ${targetUsername} actualizado`);
       setPinForm({ currentPin: '', newPin: '', confirmPin: '' });
+      fetchData();
       setTimeout(() => {
         setShowChangePin(false);
         setSelectedUserForPin(null);
@@ -4604,6 +4614,15 @@ export default function App() {
               </div>
               <div className="flex flex-wrap gap-2">
                 <button
+                  type="button"
+                  onClick={() => setShowAllPins(!showAllPins)}
+                  className="flex items-center gap-2 bg-indigo-50 text-indigo-700 border border-indigo-200 px-4 py-2.5 rounded-xl hover:bg-indigo-100 transition-all font-bold text-xs cursor-pointer shadow-xs"
+                  title={showAllPins ? "Ocultar todos los PINs" : "Mostrar todos los PINs"}
+                >
+                  {showAllPins ? <EyeOff size={16} /> : <Eye size={16} />}
+                  <span>{showAllPins ? 'Ocultar NIPs' : 'Ver NIPs de Todos'}</span>
+                </button>
+                <button
                   onClick={handleQuickSetupGus}
                   className="flex items-center gap-2 bg-emerald-50 text-emerald-700 border border-emerald-200 px-4 py-2.5 rounded-xl hover:bg-emerald-100 transition-all font-bold text-xs cursor-pointer shadow-xs"
                   title="Asegura que Gus esté dado de alta con PIN 2025 y permisos exclusivos de cobro"
@@ -4646,9 +4665,35 @@ export default function App() {
                         Todas las ganancias netas, contabilidad de personalizados, gastos, reportes e inventario están <b>completamente ocultos</b> para él.
                       </p>
                       <div className="flex flex-wrap items-center gap-3 pt-2 text-xs text-emerald-100">
-                        <span className="bg-black/20 px-3 py-1 rounded-lg font-mono">PIN actual: <b>2025</b></span>
+                        <div className="inline-flex items-center gap-2 bg-black/30 backdrop-blur-md px-3 py-1.5 rounded-xl border border-white/10 font-mono">
+                          <span>NIP de Gus:</span>
+                          <b className="text-emerald-300 tracking-wider text-sm font-mono">
+                            {showAllPins || revealedPins['Gus'] ? (gusUser?.pin || '2025') : '••••'}
+                          </b>
+                          <button 
+                            type="button"
+                            onClick={() => togglePinVisibility('Gus')}
+                            className="p-1 hover:bg-white/20 rounded transition-colors text-white cursor-pointer"
+                            title={showAllPins || revealedPins['Gus'] ? "Ocultar NIP" : "Ver NIP"}
+                          >
+                            {showAllPins || revealedPins['Gus'] ? <EyeOff size={14} /> : <Eye size={14} />}
+                          </button>
+                          <button 
+                            type="button"
+                            onClick={() => {
+                              navigator.clipboard?.writeText(gusUser?.pin || '2025');
+                              addToast('NIP de Gus copiado al portapapeles');
+                            }}
+                            className="p-1 hover:bg-white/20 rounded transition-colors text-white cursor-pointer"
+                            title="Copiar NIP"
+                          >
+                            <Copy size={13} />
+                          </button>
+                        </div>
                         <span>•</span>
                         <span>{gusUser ? '✅ Cuenta activa en la base de datos' : '⚠️ No detectado aún (haz clic en Configurar)'}</span>
+                        <span>•</span>
+                        <span className="text-emerald-200/90 font-medium">💡 Como Administradora, siempre puedes ver y cambiar este NIP cuando gustes.</span>
                       </div>
                     </div>
                     <div className="flex flex-col sm:flex-row gap-2 shrink-0">
@@ -4703,11 +4748,19 @@ export default function App() {
 
             {/* Users List Card */}
             <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
-              <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
+              <div className="p-6 border-b border-slate-100 flex flex-wrap justify-between items-center gap-4 bg-slate-50/50">
                 <div>
                   <h4 className="font-bold text-base text-slate-900">Usuarios Registrados ({users.length})</h4>
-                  <p className="text-xs text-slate-500">Cuentas con acceso al sistema</p>
+                  <p className="text-xs text-slate-500">Cuentas con acceso al sistema y sus claves de acceso (NIP)</p>
                 </div>
+                <button
+                  type="button"
+                  onClick={() => setShowAllPins(!showAllPins)}
+                  className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 text-xs font-bold transition-all shadow-xs cursor-pointer"
+                >
+                  {showAllPins ? <EyeOff size={14} className="text-slate-500" /> : <Eye size={14} className="text-indigo-600" />}
+                  <span>{showAllPins ? 'Ocultar NIPs' : 'Revelar NIPs de Todos'}</span>
+                </button>
               </div>
 
               {/* Mobile Cards View */}
@@ -4743,7 +4796,41 @@ export default function App() {
                         </span>
                       </div>
 
-                      <div className="flex gap-2 pt-2 border-t border-slate-100/80">
+                      {/* NIP Badge row for mobile */}
+                      <div className="flex items-center justify-between bg-slate-50 p-2.5 rounded-xl border border-slate-100 text-xs">
+                        <span className="text-slate-600 font-bold flex items-center gap-1.5">
+                          <Lock size={13} className="text-indigo-600" /> NIP de Acceso:
+                        </span>
+                        <div className="flex items-center gap-1.5 font-mono">
+                          <span className="font-black text-slate-900 bg-white px-2.5 py-1 rounded-lg border border-slate-200 tracking-widest text-xs min-w-[42px] text-center">
+                            {showAllPins || revealedPins[u.username] ? (u.pin || '2025') : '••••'}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => togglePinVisibility(u.username)}
+                            className="p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-white rounded-lg transition-colors cursor-pointer border border-transparent hover:border-slate-200"
+                            title={showAllPins || revealedPins[u.username] ? "Ocultar NIP" : "Ver NIP"}
+                          >
+                            {showAllPins || revealedPins[u.username] ? <EyeOff size={14} /> : <Eye size={14} />}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const pinVal = u.pin || (u.username === 'Gus' ? '2025' : '');
+                              if (pinVal) {
+                                navigator.clipboard?.writeText(pinVal);
+                                addToast(`NIP de ${u.username} copiado`);
+                              }
+                            }}
+                            className="p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-white rounded-lg transition-colors cursor-pointer border border-transparent hover:border-slate-200"
+                            title="Copiar NIP"
+                          >
+                            <Copy size={13} />
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="flex gap-2 pt-1 border-t border-slate-100/80">
                         <button 
                           onClick={() => {
                             setSelectedUserForPin(u.username);
@@ -4774,6 +4861,7 @@ export default function App() {
                     <tr>
                       <th className="px-6 py-4 font-bold">Usuario</th>
                       <th className="px-6 py-4 font-bold">Rol</th>
+                      <th className="px-6 py-4 font-bold">PIN / NIP de Acceso</th>
                       <th className="px-6 py-4 font-bold">Nivel de Acceso y Permisos</th>
                       <th className="px-6 py-4 font-bold text-right">Acciones</th>
                     </tr>
@@ -4810,6 +4898,35 @@ export default function App() {
                             }`}>
                               {isGusOrPaymentOnly ? 'Solo Pagos' : u.role}
                             </span>
+                          </td>
+                          <td className="px-6 py-4">
+                            <div className="inline-flex items-center gap-2 bg-slate-100/90 px-3 py-1.5 rounded-xl border border-slate-200 font-mono text-xs">
+                              <span className="font-black tracking-widest text-slate-900 min-w-[36px] text-center">
+                                {showAllPins || revealedPins[u.username] ? (u.pin || (u.username === 'Gus' ? '2025' : '----')) : '••••'}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => togglePinVisibility(u.username)}
+                                className="text-slate-400 hover:text-indigo-600 transition-colors p-1 rounded hover:bg-slate-200/70 cursor-pointer"
+                                title={showAllPins || revealedPins[u.username] ? "Ocultar NIP" : "Mostrar NIP"}
+                              >
+                                {showAllPins || revealedPins[u.username] ? <EyeOff size={14} /> : <Eye size={14} />}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const pinVal = u.pin || (u.username === 'Gus' ? '2025' : '');
+                                  if (pinVal) {
+                                    navigator.clipboard?.writeText(pinVal);
+                                    addToast(`NIP de ${u.username} copiado`);
+                                  }
+                                }}
+                                className="text-slate-400 hover:text-indigo-600 transition-colors p-1 rounded hover:bg-slate-200/70 cursor-pointer"
+                                title="Copiar NIP"
+                              >
+                                <Copy size={13} />
+                              </button>
+                            </div>
                           </td>
                           <td className="px-6 py-4 text-xs">
                             {isGusOrPaymentOnly ? (
