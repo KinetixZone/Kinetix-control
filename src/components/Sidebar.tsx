@@ -21,6 +21,7 @@ interface SidebarProps {
   isMobileMenuOpen: boolean;
   setIsMobileMenuOpen: (open: boolean) => void;
   currentRole: string;
+  currentUsername?: string;
   onLogout: () => void;
   birthdayAlertsCount: number;
   paymentAlertsCount: number;
@@ -34,14 +35,17 @@ export const Sidebar = ({
   isMobileMenuOpen, 
   setIsMobileMenuOpen, 
   currentRole, 
+  currentUsername,
   onLogout,
   birthdayAlertsCount,
   paymentAlertsCount,
   databaseStatus,
   onChangePin
 }: SidebarProps) => {
+  const isSoloPagos = currentRole === 'Solo Pagos' || currentUsername === 'Gus';
+
   const menuItems = [
-    { id: 'dashboard', label: 'Dashboard', icon: BarChart3 },
+    { id: 'dashboard', label: 'Dashboard', icon: BarChart3, hideForSoloPagos: true },
     { id: 'analytics', label: 'Reportes', icon: TrendingDown, role: ['Leslie', 'Jorge'] },
     { id: 'members', label: 'Miembros', icon: Users },
     { id: 'payments', label: 'Pagos', icon: CreditCard },
@@ -49,10 +53,10 @@ export const Sidebar = ({
     { id: 'attendance', label: 'Asistencia', icon: Clock },
     { id: 'personalized', label: 'Personalizados', icon: Fingerprint, role: ['Leslie', 'Jorge'] },
     { id: 'nutrition', label: 'Nutrición', icon: Apple, role: ['Leslie', 'Jorge'] },
-    { id: 'supplements', label: 'Suplementos', icon: Sparkles },
-    { id: 'sales', label: 'Ventas', icon: ShoppingBag },
-    { id: 'inventory', label: 'Inventario', icon: Box },
-    { id: 'users', label: 'Usuarios', icon: Lock, role: ['Leslie'] },
+    { id: 'supplements', label: 'Suplementos', icon: Sparkles, hideForSoloPagos: true },
+    { id: 'sales', label: 'Ventas', icon: ShoppingBag, hideForSoloPagos: true },
+    { id: 'inventory', label: 'Inventario', icon: Box, role: ['Leslie', 'Jorge'] },
+    { id: 'users', label: 'Usuarios', icon: Lock, role: ['Leslie', 'Jorge'] },
   ];
 
   return (
@@ -71,6 +75,7 @@ export const Sidebar = ({
 
       <div className="flex-1 space-y-1 overflow-y-auto pr-2 custom-scrollbar">
         {menuItems.map((item) => {
+          if (isSoloPagos && item.hideForSoloPagos) return null;
           if (item.role && !item.role.includes(currentRole)) return null;
           const Icon = item.icon;
           const isActive = activeTab === item.id;
@@ -103,15 +108,13 @@ export const Sidebar = ({
       </div>
 
       <div className="pt-6 mt-6 border-t border-slate-100 space-y-4">
-        {(currentRole === 'Leslie' || currentRole === 'Jorge') && (
-          <button 
-            onClick={onChangePin}
-            className="w-full flex items-center gap-3 px-4 py-2.5 rounded-2xl text-slate-500 hover:bg-slate-50 transition-all font-medium text-sm"
-          >
-            <Lock size={18} />
-            Cambiar PIN
-          </button>
-        )}
+        <button 
+          onClick={onChangePin}
+          className="w-full flex items-center gap-3 px-4 py-2.5 rounded-2xl text-slate-500 hover:bg-slate-50 transition-all font-medium text-sm"
+        >
+          <Lock size={18} />
+          Cambiar PIN
+        </button>
 
         <div className="px-4 py-3 bg-slate-50 rounded-2xl space-y-3">
           <div className="flex items-center gap-2 px-1">
@@ -122,11 +125,30 @@ export const Sidebar = ({
           </div>
 
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center font-bold text-xs uppercase">
-              {currentRole?.slice(0, 2)}
+            <div className={`w-9 h-9 rounded-full flex items-center justify-center font-black text-xs uppercase shadow-xs ${
+              isSoloPagos
+                ? 'bg-emerald-100 text-emerald-700 ring-2 ring-emerald-300'
+                : currentRole === 'Leslie'
+                ? 'bg-indigo-100 text-indigo-700'
+                : currentRole === 'Jorge'
+                ? 'bg-blue-100 text-blue-700'
+                : 'bg-slate-200 text-slate-700'
+            }`}>
+              {(currentUsername || currentRole || 'U').slice(0, 2)}
             </div>
             <div className="flex-1 overflow-hidden">
-              <p className="text-xs font-black text-slate-900 truncate uppercase mt-0.5">{currentRole}</p>
+              <p className="text-xs font-black text-slate-900 truncate uppercase mt-0.5">
+                {currentUsername || currentRole}
+              </p>
+              <p className={`text-[10px] font-bold truncate ${isSoloPagos ? 'text-emerald-600' : 'text-slate-400'}`}>
+                {isSoloPagos 
+                  ? 'Solo Pagos (Caja)' 
+                  : currentRole === 'Leslie' 
+                  ? 'Super Admin' 
+                  : currentRole === 'Jorge' 
+                  ? 'Admin' 
+                  : currentRole}
+              </p>
             </div>
           </div>
         </div>

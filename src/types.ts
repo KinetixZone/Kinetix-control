@@ -84,7 +84,7 @@ export interface UserProfile {
   id: number;
   username: string;
   pin: string;
-  role: 'Leslie' | 'Jorge' | 'Staff';
+  role: 'Leslie' | 'Jorge' | 'Staff' | 'Solo Pagos' | string;
 }
 
-export type Role = 'Leslie' | 'Jorge' | 'Staff';
+export type Role = 'Leslie' | 'Jorge' | 'Staff' | 'Solo Pagos' | string;

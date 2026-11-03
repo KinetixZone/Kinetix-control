@@ -204,6 +204,9 @@ export default function App() {
   const [memberPaymentDayFilter, setMemberPaymentDayFilter] = useState<string>('');
   const [selectedMember, setSelectedMember] = useState<Member | null>(null);
   const [currentRole, setCurrentRole] = useState<Role>('Leslie');
+  const [currentUsername, setCurrentUsername] = useState<string>('Leslie');
+  const isSoloPagos = currentRole === 'Solo Pagos' || currentUsername === 'Gus';
+  const isAdmin = currentRole === 'Leslie' || currentRole === 'Jorge';
   const [errorMsg, setErrorMsg] = useState('');
 
   // Form states
@@ -243,12 +246,23 @@ export default function App() {
   const [newSale, setNewSale] = useState({ item_id: 0, quantity: 1, total_price: 0, unit_cost: 0 });
 
   useEffect(() => {
+    // Load users list for login dropdown & filter
+    supabase.from('users').select('id, username, role').order('id').then(({ data }) => {
+      if (data && data.length > 0) {
+        setUsers(data);
+      }
+    });
+
     const savedUser = localStorage.getItem('kinetix_user');
     if (savedUser) {
       try {
         const user = JSON.parse(savedUser);
         if (user && user.role) {
           setCurrentRole(user.role);
+          setCurrentUsername(user.username || user.role);
+          if (user.role === 'Solo Pagos' || user.username === 'Gus') {
+            setActiveTab('payments');
+          }
           setIsLoggedIn(true);
           fetchData();
         }
@@ -287,13 +301,17 @@ export default function App() {
         .single();
 
       if (error || !data) {
-        setLoginError('PIN incorrecto');
+        setLoginError('PIN incorrecto para ' + loginForm.username);
         setIsSubmitting(false);
         return;
       }
 
       localStorage.setItem('kinetix_user', JSON.stringify({ username: data.username, role: data.role }));
       setCurrentRole(data.role);
+      setCurrentUsername(data.username);
+      if (data.role === 'Solo Pagos' || data.username === 'Gus') {
+        setActiveTab('payments');
+      }
       setIsLoggedIn(true);
       setLoginError('');
       fetchData();
@@ -307,6 +325,9 @@ export default function App() {
   const handleLogout = () => {
     localStorage.removeItem('kinetix_user');
     setIsLoggedIn(false);
+    setCurrentRole('Leslie');
+    setCurrentUsername('Leslie');
+    setActiveTab('dashboard');
   };
 
   const onAddToast = (message: string, type: 'success' | 'error' | 'info' = 'success') => {
@@ -324,14 +345,39 @@ export default function App() {
   };
 
   const [showAddUser, setShowAddUser] = useState(false);
-  const [newUser, setNewUser] = useState({ username: '', pin: '', role: 'Coach' });
+  const [newUser, setNewUser] = useState({ username: '', pin: '', role: 'Solo Pagos' });
+
+  const handleQuickSetupGus = async () => {
+    confirmAction(
+      'Configuración de Gus',
+      '¿Deseas verificar o restablecer el usuario Gus con rol "Solo Pagos" y PIN 2025?',
+      async () => {
+        setIsSubmitting(true);
+        try {
+          const { data: existing } = await supabase.from('users').select('*').eq('username', 'Gus').single();
+          if (existing) {
+            await supabase.from('users').update({ role: 'Solo Pagos' }).eq('username', 'Gus');
+            addToast('Usuario Gus confirmado con rol "Solo Pagos" (Caja)');
+          } else {
+            await supabase.from('users').insert([{ username: 'Gus', pin: '2025', role: 'Solo Pagos' }]);
+            addToast('Usuario Gus creado con éxito (PIN: 2025 - Solo Pagos)');
+          }
+          fetchData();
+        } catch (err: any) {
+          addToast('Error al configurar usuario Gus: ' + (err.message || ''), 'error');
+        } finally {
+          setIsSubmitting(false);
+        }
+      }
+    );
+  };
 
   const handleAddUser = async (e: React.FormEvent) => {
     e.preventDefault();
     
     confirmAction(
       '¿Crear Usuario?',
-      `Se creará una nueva cuenta para ${newUser.username}. ¿Deseas continuar?`,
+      `Se creará una nueva cuenta para ${newUser.username} con rol "${newUser.role}". ¿Deseas continuar?`,
       async () => {
         setIsSubmitting(true);
         try {
@@ -347,7 +393,7 @@ export default function App() {
           if (error) throw error;
           addToast(`Usuario ${newUser.username} creado correctamente`);
           setShowAddUser(false);
-          setNewUser({ username: '', pin: '', role: 'Coach' });
+          setNewUser({ username: '', pin: '', role: 'Solo Pagos' });
           fetchData();
         } catch (error: any) {
           addToast(error.message || 'Error al crear usuario', 'error');
@@ -643,10 +689,10 @@ export default function App() {
       });
       setPaymentAlerts(expiringAlerts);
       
-      // 8. Users (Admin only)
-      if (currentRole === 'Leslie' || currentRole === 'Jorge') {
-        const { data: usersData, error: uError } = await supabase.from('users').select('username, role');
-        if (!uError) setUsers(usersData || []);
+      // 8. Users
+      const { data: usersData, error: uError } = await supabase.from('users').select('id, username, role').order('id');
+      if (!uError && usersData) {
+        setUsers(usersData);
       }
 
       setDatabaseStatus('online');
@@ -1285,7 +1331,7 @@ export default function App() {
                 payment_type: newPayment.payment_type,
                 discount_type: newPayment.discount_type,
                 discount_amount: discount,
-                received_by: newPayment.received_by || currentRole,
+                received_by: newPayment.received_by || currentUsername || currentRole || 'Gus',
                 expiry_date,
                 payment_date: finalPaymentDate,
                 notes: encryptData(newPayment.notes || ''),
@@ -1305,7 +1351,7 @@ export default function App() {
                 payment_type: newPayment.payment_type,
                 discount_type: newPayment.discount_type,
                 discount_amount: discount,
-                received_by: newPayment.received_by || currentRole,
+                received_by: newPayment.received_by || currentUsername || currentRole || 'Gus',
                 expiry_date,
                 payment_date: finalPaymentDate,
                 notes: encryptData(newPayment.notes || ''),
@@ -1764,13 +1810,24 @@ export default function App() {
             <div>
               <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Usuario</label>
               <select 
-                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all"
+                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all font-bold text-slate-800"
                 value={loginForm.username}
                 onChange={(e) => setLoginForm({ ...loginForm, username: e.target.value })}
               >
-                <option value="Leslie">Leslie (Super Admin)</option>
-                <option value="Jorge">Jorge (Admin)</option>
-                <option value="Staff">Profe (Staff)</option>
+                {users.length > 0 ? (
+                  users.map(u => (
+                    <option key={u.username} value={u.username}>
+                      {u.username} {u.role === 'Leslie' ? '(Super Admin)' : u.role === 'Jorge' ? '(Admin)' : u.role === 'Solo Pagos' || u.username === 'Gus' ? '(Solo Pagos / Caja)' : `(${u.role})`}
+                    </option>
+                  ))
+                ) : (
+                  <>
+                    <option value="Leslie">Leslie (Super Admin)</option>
+                    <option value="Jorge">Jorge (Admin)</option>
+                    <option value="Gus">Gus (Solo Pagos / Caja)</option>
+                    <option value="Staff">Profe (Staff)</option>
+                  </>
+                )}
               </select>
             </div>
 
@@ -1810,8 +1867,12 @@ export default function App() {
             </button>
           </form>
 
-          <div className="mt-8 pt-6 border-t border-slate-100 text-center">
-            <p className="text-[10px] text-slate-400 uppercase tracking-widest font-bold">Control de Pagos v2.0</p>
+          <div className="mt-6 pt-4 border-t border-slate-100 space-y-2">
+            <div className="flex items-center justify-between text-xs text-slate-600 bg-slate-50 px-3 py-2 rounded-xl border border-slate-100">
+              <span className="font-medium">💡 Acceso Gus (Solo Pagos):</span>
+              <span className="font-mono font-bold text-indigo-600">PIN: 2025</span>
+            </div>
+            <p className="text-[10px] text-slate-400 text-center uppercase tracking-widest font-bold">Control de Pagos v2.0</p>
           </div>
         </motion.div>
       </div>
@@ -1859,11 +1920,15 @@ export default function App() {
         isMobileMenuOpen={isMobileMenuOpen}
         setIsMobileMenuOpen={setIsMobileMenuOpen}
         currentRole={currentRole}
+        currentUsername={currentUsername}
         onLogout={handleLogout}
         birthdayAlertsCount={birthdayAlerts.length}
         paymentAlertsCount={paymentAlerts.length}
         databaseStatus={databaseStatus}
-        onChangePin={() => setShowChangePin(true)}
+        onChangePin={() => {
+          setSelectedUserForPin(currentUsername || currentRole);
+          setShowChangePin(true);
+        }}
       />
 
       {/* Main Content */}
@@ -1923,11 +1988,11 @@ export default function App() {
               onClick={() => {
                 setNewPayment({
                   member_id: '' as any,
-                  amount: 0,
+                  amount: 500,
                   discount_amount: 0,
                   discount_type: 'none',
                   payment_type: 'monthly',
-                  received_by: currentRole || '',
+                  received_by: currentUsername || currentRole || 'Gus',
                   months: 1,
                   notes: '',
                   start_date: new Date().toISOString().split('T')[0],
@@ -3048,65 +3113,114 @@ export default function App() {
               </div>
 
               {/* Quick Summary Badge in header */}
-              <div className="flex items-center gap-2 px-3 py-1 bg-slate-50 rounded-xl text-xs font-bold text-slate-600">
-                <span className="text-slate-400">Total Período:</span>
-                <span className="font-mono text-emerald-600 font-black">${paymentStats.totalAmount.toFixed(2)}</span>
-                <span className="text-slate-300">|</span>
-                <span className="text-slate-500">{paymentStats.count} pagos</span>
-              </div>
+              {isSoloPagos ? (
+                <div className="flex items-center gap-2 px-3 py-1 bg-emerald-50 text-emerald-800 rounded-xl text-xs font-bold border border-emerald-200">
+                  <ShieldCheck size={14} className="text-emerald-600" />
+                  <span>Modo Caja: <b>{currentUsername}</b> (Solo Pagos)</span>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2 px-3 py-1 bg-slate-50 rounded-xl text-xs font-bold text-slate-600">
+                  <span className="text-slate-400">Total Período:</span>
+                  <span className="font-mono text-emerald-600 font-black">${paymentStats.totalAmount.toFixed(2)}</span>
+                  <span className="text-slate-300">|</span>
+                  <span className="text-slate-500">{paymentStats.count} pagos</span>
+                </div>
+              )}
             </div>
 
             {/* Quick Metrics Cards */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-xs flex items-center justify-between">
-                <div>
-                  <div className="text-[10px] font-black text-slate-400 uppercase tracking-wider">Recaudación Período</div>
-                  <div className="text-xl font-black text-emerald-600 font-mono mt-0.5">
-                    ${paymentStats.totalAmount.toFixed(2)}
+            {isSoloPagos ? (
+              <div className="bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-700 text-white p-6 rounded-2xl shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div className="space-y-1">
+                  <div className="inline-flex items-center gap-2 px-2.5 py-1 rounded-full bg-white/20 text-white text-[11px] font-black uppercase tracking-wider">
+                    <ShieldCheck size={14} /> Recepción y Caja
                   </div>
-                  <div className="text-[10px] text-slate-400 mt-1 flex gap-2">
-                    <span>Mensualidades: <b>{paymentStats.monthlyCount}</b></span>
-                    <span>•</span>
-                    <span>Visitas: <b>{paymentStats.visitCount}</b></span>
-                  </div>
+                  <h3 className="text-xl md:text-2xl font-black">Operador Activo: {currentUsername}</h3>
+                  <p className="text-xs text-emerald-100 max-w-xl">
+                    Registra mensualidades, visitas y genera tickets de pago para los socios.
+                  </p>
                 </div>
-                <div className="p-3 bg-emerald-50 text-emerald-600 rounded-2xl">
-                  <DollarSign size={20} />
-                </div>
+                <button
+                  onClick={() => {
+                    setNewPayment({
+                      member_id: '' as any,
+                      amount: 500,
+                      discount_amount: 0,
+                      discount_type: 'none',
+                      payment_type: 'monthly',
+                      received_by: currentUsername || 'Gus',
+                      months: 1,
+                      notes: '',
+                      start_date: new Date().toISOString().split('T')[0],
+                      expiry_date: '',
+                      category: 'gym' as any,
+                      nutritionist_commission: 0,
+                      commission_paid: false
+                    });
+                    setPaymentSearchTerm('');
+                    setSelectedMember(null);
+                    setIsEditing(false);
+                    setEditingId(null);
+                    setShowAddPayment(true);
+                  }}
+                  className="bg-white text-emerald-800 hover:bg-emerald-50 px-6 py-3.5 rounded-xl font-black text-sm flex items-center justify-center gap-2 shadow-lg shadow-black/10 transition-all shrink-0 cursor-pointer"
+                >
+                  <Plus size={20} />
+                  + Registrar Nuevo Pago
+                </button>
               </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-xs flex items-center justify-between">
+                  <div>
+                    <div className="text-[10px] font-black text-slate-400 uppercase tracking-wider">Recaudación Período</div>
+                    <div className="text-xl font-black text-emerald-600 font-mono mt-0.5">
+                      ${paymentStats.totalAmount.toFixed(2)}
+                    </div>
+                    <div className="text-[10px] text-slate-400 mt-1 flex gap-2">
+                      <span>Mensualidades: <b>{paymentStats.monthlyCount}</b></span>
+                      <span>•</span>
+                      <span>Visitas: <b>{paymentStats.visitCount}</b></span>
+                    </div>
+                  </div>
+                  <div className="p-3 bg-emerald-50 text-emerald-600 rounded-2xl">
+                    <DollarSign size={20} />
+                  </div>
+                </div>
 
-              <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-xs flex items-center justify-between">
-                <div>
-                  <div className="text-[10px] font-black text-slate-400 uppercase tracking-wider">Transacciones</div>
-                  <div className="text-xl font-black text-slate-900 font-mono mt-0.5">
-                    {paymentStats.count} <span className="text-xs font-medium text-slate-400">pagos</span>
+                <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-xs flex items-center justify-between">
+                  <div>
+                    <div className="text-[10px] font-black text-slate-400 uppercase tracking-wider">Transacciones</div>
+                    <div className="text-xl font-black text-slate-900 font-mono mt-0.5">
+                      {paymentStats.count} <span className="text-xs font-medium text-slate-400">pagos</span>
+                    </div>
+                    <div className="text-[10px] text-slate-400 mt-1">
+                      {paymentDayFilter ? 'Filtrado por día específico' : 
+                       paymentMonthFilter ? `Mes: ${paymentMonthFilter}` : 
+                       paymentYearFilter ? `Año: ${paymentYearFilter}` : 'Histórico completo'}
+                    </div>
                   </div>
-                  <div className="text-[10px] text-slate-400 mt-1">
-                    {paymentDayFilter ? 'Filtrado por día específico' : 
-                     paymentMonthFilter ? `Mes: ${paymentMonthFilter}` : 
-                     paymentYearFilter ? `Año: ${paymentYearFilter}` : 'Histórico completo'}
+                  <div className="p-3 bg-blue-50 text-blue-600 rounded-2xl">
+                    <Receipt size={20} />
                   </div>
                 </div>
-                <div className="p-3 bg-blue-50 text-blue-600 rounded-2xl">
-                  <Receipt size={20} />
-                </div>
-              </div>
 
-              <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-xs flex items-center justify-between">
-                <div>
-                  <div className="text-[10px] font-black text-slate-400 uppercase tracking-wider">Promedio por Pago</div>
-                  <div className="text-xl font-black text-indigo-600 font-mono mt-0.5">
-                    ${paymentStats.avgAmount.toFixed(2)}
+                <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-xs flex items-center justify-between">
+                  <div>
+                    <div className="text-[10px] font-black text-slate-400 uppercase tracking-wider">Promedio por Pago</div>
+                    <div className="text-xl font-black text-indigo-600 font-mono mt-0.5">
+                      ${paymentStats.avgAmount.toFixed(2)}
+                    </div>
+                    <div className="text-[10px] text-slate-400 mt-1">
+                      Ticket promedio en este período
+                    </div>
                   </div>
-                  <div className="text-[10px] text-slate-400 mt-1">
-                    Ticket promedio en este período
+                  <div className="p-3 bg-indigo-50 text-indigo-600 rounded-2xl">
+                    <BarChart3 size={20} />
                   </div>
-                </div>
-                <div className="p-3 bg-indigo-50 text-indigo-600 rounded-2xl">
-                  <BarChart3 size={20} />
                 </div>
               </div>
-            </div>
+            )}
 
             {/* Filter Bar & Search */}
             <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-4 space-y-3">
@@ -3332,13 +3446,15 @@ export default function App() {
                         <Receipt size={14} />
                         Recibo
                       </button>
-                      <button 
-                        onClick={() => handleEditPayment(p)}
-                        className="flex-1 bg-slate-50 text-slate-600 py-2 rounded-xl font-bold text-xs flex items-center justify-center gap-2"
-                      >
-                        <Edit size={14} />
-                        Editar
-                      </button>
+                      {isAdmin && (
+                        <button 
+                          onClick={() => handleEditPayment(p)}
+                          className="flex-1 bg-slate-50 text-slate-600 py-2 rounded-xl font-bold text-xs flex items-center justify-center gap-2"
+                        >
+                          <Edit size={14} />
+                          Editar
+                        </button>
+                      )}
                       {(currentRole === 'Leslie' || currentRole === 'Jorge') && (
                         <button 
                           onClick={() => handleDeletePayment(p.id)}
@@ -3363,12 +3479,14 @@ export default function App() {
                     Mostrando {filteredPayments.length > 0 ? (currentPaymentPage - 1) * PAYMENTS_PER_PAGE + 1 : 0} a {Math.min(currentPaymentPage * PAYMENTS_PER_PAGE, filteredPayments.length)} de {filteredPayments.length} transacciones
                   </p>
                 </div>
-                <div className="bg-white px-6 py-3 rounded-2xl border border-slate-100 shadow-sm text-right">
-                  <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-0.5">Recaudación Período</div>
-                  <div className="text-2xl font-black text-emerald-600 font-mono">
-                    ${paymentStats.totalAmount.toFixed(2)}
+                {!isSoloPagos && (
+                  <div className="bg-white px-6 py-3 rounded-2xl border border-slate-100 shadow-sm text-right">
+                    <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-0.5">Recaudación Período</div>
+                    <div className="text-2xl font-black text-emerald-600 font-mono">
+                      ${paymentStats.totalAmount.toFixed(2)}
+                    </div>
                   </div>
-                </div>
+                )}
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full text-left">
@@ -3437,13 +3555,15 @@ export default function App() {
                               >
                                 <Receipt size={16} />
                               </button>
-                              <button 
-                                onClick={() => handleEditPayment(p)}
-                                className="text-slate-400 hover:text-slate-600 p-2 rounded-lg hover:bg-slate-50 transition-all"
-                                title="Editar Pago"
-                              >
-                                <Edit size={16} />
-                              </button>
+                              {isAdmin && (
+                                <button 
+                                  onClick={() => handleEditPayment(p)}
+                                  className="text-slate-400 hover:text-slate-600 p-2 rounded-lg hover:bg-slate-50 transition-all"
+                                  title="Editar Pago"
+                                >
+                                  <Edit size={16} />
+                                </button>
+                              )}
                               {(currentRole === 'Leslie' || currentRole === 'Jorge') && (
                                 <button 
                                   onClick={() => handleDeletePayment(p.id)}
@@ -4469,54 +4589,182 @@ export default function App() {
         )}
         {activeTab === 'users' && (currentRole === 'Leslie' || currentRole === 'Jorge') && (
           <div className="space-y-6">
-            <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
-              <div className="p-6 border-b border-slate-100 flex justify-between items-center">
-                <div>
-                  <h3 className="font-bold text-lg">Gestión de Usuarios</h3>
-                  <p className="text-sm text-slate-500">Administra los accesos y PINs del personal</p>
+            {/* Top Header Card */}
+            <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="p-2 bg-indigo-600 text-white rounded-xl shadow-xs">
+                    <Users size={20} />
+                  </span>
+                  <h3 className="font-black text-xl text-slate-900">Gestión de Personal y Usuarios</h3>
                 </div>
+                <p className="text-sm text-slate-500 mt-1">
+                  Administra las cuentas de acceso, roles y PINs de seguridad del personal del gimnasio.
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  onClick={handleQuickSetupGus}
+                  className="flex items-center gap-2 bg-emerald-50 text-emerald-700 border border-emerald-200 px-4 py-2.5 rounded-xl hover:bg-emerald-100 transition-all font-bold text-xs cursor-pointer shadow-xs"
+                  title="Asegura que Gus esté dado de alta con PIN 2025 y permisos exclusivos de cobro"
+                >
+                  <ShieldCheck size={16} />
+                  Verificar / Configurar Gus
+                </button>
                 <button 
                   onClick={() => {
-                    setNewUser({ username: '', pin: '', role: 'Coach' });
+                    setNewUser({ username: '', pin: '', role: 'Solo Pagos' });
                     setShowAddUser(true);
                   }}
-                  className="flex items-center gap-2 bg-slate-900 text-white px-4 py-2 rounded-xl hover:bg-slate-800 transition-all font-bold text-sm"
+                  className="flex items-center gap-2 bg-slate-900 text-white px-4 py-2.5 rounded-xl hover:bg-slate-800 transition-all font-bold text-xs shadow-sm cursor-pointer"
                 >
-                  <Plus size={18} />
+                  <Plus size={16} />
                   Nuevo Usuario
                 </button>
               </div>
-              {/* Mobile Cards View */}
-              <div className="grid grid-cols-1 gap-4 lg:hidden p-4">
-                {users.map(u => (
-                  <div key={u.username} className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm space-y-4">
-                    <div className="flex justify-between items-center">
-                      <h4 className="font-bold text-slate-900">{u.username}</h4>
-                      <span className={`px-2 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${u.role === 'Leslie' ? 'bg-indigo-50 text-indigo-600' : u.role === 'Jorge' ? 'bg-blue-50 text-blue-600' : 'bg-slate-100 text-slate-600'}`}>
-                        {u.role}
-                      </span>
+            </div>
+
+            {/* Spotlight Card: Gus (Caja / Recepción) */}
+            {(() => {
+              const gusUser = users.find(u => u.username === 'Gus');
+              return (
+                <div className="bg-gradient-to-br from-emerald-600 via-teal-700 to-emerald-800 text-white p-6 sm:p-7 rounded-[2.5rem] shadow-xl shadow-emerald-600/10 relative overflow-hidden">
+                  <div className="absolute top-0 right-0 w-64 h-64 bg-white/10 rounded-full -translate-y-32 translate-x-32 blur-3xl pointer-events-none" />
+                  <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
+                    <div className="space-y-2">
+                      <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/20 backdrop-blur-md text-[11px] font-black uppercase tracking-wider text-emerald-100 border border-white/20">
+                        <ShieldCheck size={14} /> Perfil Especial de Caja / Recepción
+                      </div>
+                      <h4 className="text-2xl sm:text-3xl font-black flex items-center gap-3">
+                        Usuario Gus
+                        <span className="text-xs px-2.5 py-1 rounded-full bg-white text-emerald-800 font-black uppercase tracking-wider">
+                          Solo Pagos
+                        </span>
+                      </h4>
+                      <p className="text-sm text-emerald-50 max-w-2xl leading-relaxed">
+                        Este usuario está blindado: <b>únicamente puede registrar pagos de mensualidades y visitas, buscar socios y generar tickets de pago</b> con su nombre (<code className="bg-black/20 px-1.5 py-0.5 rounded text-white font-mono">received_by: Gus</code>).
+                        Todas las ganancias netas, contabilidad de personalizados, gastos, reportes e inventario están <b>completamente ocultos</b> para él.
+                      </p>
+                      <div className="flex flex-wrap items-center gap-3 pt-2 text-xs text-emerald-100">
+                        <span className="bg-black/20 px-3 py-1 rounded-lg font-mono">PIN actual: <b>2025</b></span>
+                        <span>•</span>
+                        <span>{gusUser ? '✅ Cuenta activa en la base de datos' : '⚠️ No detectado aún (haz clic en Configurar)'}</span>
+                      </div>
                     </div>
-                    <div className="flex gap-2 pt-2">
+                    <div className="flex flex-col sm:flex-row gap-2 shrink-0">
                       <button 
                         onClick={() => {
-                          setSelectedUserForPin(u.username);
+                          setSelectedUserForPin('Gus');
                           setShowChangePin(true);
                         }}
-                        className="flex-1 bg-indigo-50 text-indigo-600 py-2 rounded-xl font-bold text-xs"
+                        className="bg-white text-emerald-800 hover:bg-emerald-50 px-5 py-3 rounded-2xl font-black text-xs uppercase tracking-wider shadow-lg shadow-black/10 transition-all flex items-center justify-center gap-2 cursor-pointer"
                       >
-                        Cambiar PIN
+                        <Lock size={16} />
+                        Cambiar PIN de Gus
                       </button>
-                      {u.username !== 'Leslie' && u.username !== 'Jorge' && (
-                        <button 
-                          onClick={() => handleDeleteUser(u.username)}
-                          className="flex-1 bg-rose-50 text-rose-600 py-2 rounded-xl font-bold text-xs"
-                        >
-                          Eliminar
-                        </button>
-                      )}
                     </div>
                   </div>
-                ))}
+                </div>
+              );
+            })()}
+
+            {/* Matrix Permissions Explanation */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="bg-white p-5 rounded-2xl border border-indigo-100 shadow-xs space-y-2">
+                <div className="flex items-center gap-2 text-indigo-600 font-black text-xs uppercase tracking-wider">
+                  <ShieldCheck size={16} /> Super Admin & Admin
+                </div>
+                <div className="font-bold text-slate-900 text-sm">Leslie & Jorge</div>
+                <p className="text-xs text-slate-500 leading-relaxed">
+                  Control total del gimnasio: utilidades netas generales, ganancias de personalizados vs Kinetix, registro de gastos, reportes y gestión de usuarios.
+                </p>
+              </div>
+
+              <div className="bg-white p-5 rounded-2xl border border-emerald-100 shadow-xs space-y-2">
+                <div className="flex items-center gap-2 text-emerald-600 font-black text-xs uppercase tracking-wider">
+                  <CreditCard size={16} /> Solo Registro de Pagos
+                </div>
+                <div className="font-bold text-slate-900 text-sm">Gus (Caja y Recepción)</div>
+                <p className="text-xs text-slate-500 leading-relaxed">
+                  Acceso exclusivo para registrar cuotas, visitas, buscar socios y generar comprobantes de pago. Cero acceso a números financieros confidenciales.
+                </p>
+              </div>
+
+              <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs space-y-2">
+                <div className="flex items-center gap-2 text-slate-600 font-black text-xs uppercase tracking-wider">
+                  <Clock size={16} /> Coach / Staff
+                </div>
+                <div className="font-bold text-slate-900 text-sm">Entrenadores de Sala</div>
+                <p className="text-xs text-slate-500 leading-relaxed">
+                  Registro de asistencias (check-in), visualización de miembros en el gimnasio y alertas de cumpleaños de socios.
+                </p>
+              </div>
+            </div>
+
+            {/* Users List Card */}
+            <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+              <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
+                <div>
+                  <h4 className="font-bold text-base text-slate-900">Usuarios Registrados ({users.length})</h4>
+                  <p className="text-xs text-slate-500">Cuentas con acceso al sistema</p>
+                </div>
+              </div>
+
+              {/* Mobile Cards View */}
+              <div className="grid grid-cols-1 gap-4 lg:hidden p-4">
+                {users.map(u => {
+                  const isGusOrPaymentOnly = u.role === 'Solo Pagos' || u.username === 'Gus';
+                  const isMainAdmin = u.username === 'Leslie' || u.username === 'Jorge';
+                  return (
+                    <div key={u.username} className={`p-5 rounded-2xl border shadow-xs space-y-3 ${isGusOrPaymentOnly ? 'bg-emerald-50/40 border-emerald-200' : 'bg-white border-slate-100'}`}>
+                      <div className="flex justify-between items-start">
+                        <div className="flex items-center gap-3">
+                          <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-black text-sm uppercase ${
+                            isGusOrPaymentOnly ? 'bg-emerald-600 text-white' :
+                            u.username === 'Leslie' ? 'bg-indigo-600 text-white' :
+                            u.username === 'Jorge' ? 'bg-blue-600 text-white' : 'bg-slate-200 text-slate-700'
+                          }`}>
+                            {u.username.slice(0, 2)}
+                          </div>
+                          <div>
+                            <h4 className="font-black text-slate-900 text-base">{u.username}</h4>
+                            <p className="text-[11px] text-slate-500">
+                              {isGusOrPaymentOnly ? 'Solo cobra y emite tickets' : isMainAdmin ? 'Acceso administrativo total' : 'Entrenador / Operativo'}
+                            </p>
+                          </div>
+                        </div>
+                        <span className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${
+                          isGusOrPaymentOnly ? 'bg-emerald-100 text-emerald-800 border border-emerald-200' :
+                          u.role === 'Leslie' ? 'bg-indigo-50 text-indigo-700 border border-indigo-200' : 
+                          u.role === 'Jorge' ? 'bg-blue-50 text-blue-700 border border-blue-200' : 
+                          'bg-slate-100 text-slate-600 border border-slate-200'
+                        }`}>
+                          {isGusOrPaymentOnly ? 'Solo Pagos' : u.role}
+                        </span>
+                      </div>
+
+                      <div className="flex gap-2 pt-2 border-t border-slate-100/80">
+                        <button 
+                          onClick={() => {
+                            setSelectedUserForPin(u.username);
+                            setShowChangePin(true);
+                          }}
+                          className="flex-1 bg-indigo-50 text-indigo-600 py-2.5 rounded-xl font-bold text-xs hover:bg-indigo-100 transition-all cursor-pointer"
+                        >
+                          Cambiar PIN
+                        </button>
+                        {!isMainAdmin && (
+                          <button 
+                            onClick={() => handleDeleteUser(u.username)}
+                            className="flex-1 bg-rose-50 text-rose-600 py-2.5 rounded-xl font-bold text-xs hover:bg-rose-100 transition-all cursor-pointer"
+                          >
+                            Eliminar
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
 
               {/* Desktop Table View */}
@@ -4524,49 +4772,96 @@ export default function App() {
                 <table className="w-full text-left">
                   <thead className="bg-slate-50 text-slate-400 text-xs uppercase tracking-wider">
                     <tr>
-                      <th className="px-6 py-3 font-semibold">Usuario</th>
-                      <th className="px-6 py-3 font-semibold">Rol</th>
-                      <th className="px-6 py-3 font-semibold">Acciones</th>
+                      <th className="px-6 py-4 font-bold">Usuario</th>
+                      <th className="px-6 py-4 font-bold">Rol</th>
+                      <th className="px-6 py-4 font-bold">Nivel de Acceso y Permisos</th>
+                      <th className="px-6 py-4 font-bold text-right">Acciones</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-50">
-                    {users.map(u => (
-                      <tr key={u.username} className="hover:bg-slate-50 transition-all">
-                        <td className="px-6 py-4 font-medium">{u.username}</td>
-                        <td className="px-6 py-4">
-                          <span className={`px-2 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${u.role === 'Leslie' ? 'bg-indigo-50 text-indigo-600' : u.role === 'Jorge' ? 'bg-blue-50 text-blue-600' : 'bg-slate-100 text-slate-600'}`}>
-                            {u.role}
-                          </span>
-                        </td>
-                        <td className="px-6 py-4">
-                          <div className="flex gap-3">
-                            <button 
-                              onClick={() => {
-                                setSelectedUserForPin(u.username);
-                                setShowChangePin(true);
-                              }}
-                              className="text-indigo-600 hover:text-indigo-800 font-bold text-xs uppercase"
-                            >
-                              Cambiar PIN
-                            </button>
-                            {u.username !== 'Leslie' && u.username !== 'Jorge' && (
-                              <button 
-                                onClick={() => handleDeleteUser(u.username)}
-                                className="text-rose-400 hover:text-rose-600 font-bold text-xs uppercase"
-                              >
-                                Eliminar
-                              </button>
+                  <tbody className="divide-y divide-slate-100">
+                    {users.map(u => {
+                      const isGusOrPaymentOnly = u.role === 'Solo Pagos' || u.username === 'Gus';
+                      const isMainAdmin = u.username === 'Leslie' || u.username === 'Jorge';
+                      return (
+                        <tr key={u.username} className={`transition-all ${isGusOrPaymentOnly ? 'bg-emerald-50/20 hover:bg-emerald-50/40' : 'hover:bg-slate-50/80'}`}>
+                          <td className="px-6 py-4 font-medium">
+                            <div className="flex items-center gap-3">
+                              <div className={`w-9 h-9 rounded-xl flex items-center justify-center font-black text-xs uppercase ${
+                                isGusOrPaymentOnly ? 'bg-emerald-600 text-white shadow-xs' :
+                                u.username === 'Leslie' ? 'bg-indigo-600 text-white' :
+                                u.username === 'Jorge' ? 'bg-blue-600 text-white' : 'bg-slate-200 text-slate-700'
+                              }`}>
+                                {u.username.slice(0, 2)}
+                              </div>
+                              <div>
+                                <div className="font-bold text-slate-900">{u.username}</div>
+                                {isGusOrPaymentOnly && (
+                                  <span className="text-[10px] text-emerald-600 font-bold">Caja / Recepción</span>
+                                )}
+                              </div>
+                            </div>
+                          </td>
+                          <td className="px-6 py-4">
+                            <span className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${
+                              isGusOrPaymentOnly ? 'bg-emerald-100 text-emerald-800 border border-emerald-200' :
+                              u.role === 'Leslie' ? 'bg-indigo-50 text-indigo-700 border border-indigo-200' : 
+                              u.role === 'Jorge' ? 'bg-blue-50 text-blue-700 border border-blue-200' : 
+                              'bg-slate-100 text-slate-600 border border-slate-200'
+                            }`}>
+                              {isGusOrPaymentOnly ? 'Solo Pagos' : u.role}
+                            </span>
+                          </td>
+                          <td className="px-6 py-4 text-xs">
+                            {isGusOrPaymentOnly ? (
+                              <div className="space-y-0.5">
+                                <span className="text-emerald-700 font-bold flex items-center gap-1">
+                                  <CheckCircle2 size={13} /> Registro de mensualidades, visitas y emisión de tickets
+                                </span>
+                                <span className="text-slate-400 block text-[11px]">
+                                  🔒 Ganancias netas, gastos, analíticas y finanzas 100% bloqueadas
+                                </span>
+                              </div>
+                            ) : isMainAdmin ? (
+                              <span className="text-indigo-700 font-bold flex items-center gap-1">
+                                <ShieldCheck size={14} /> Control total administrativo y financiero
+                              </span>
+                            ) : (
+                              <span className="text-slate-600 font-medium">
+                                Asistencia de miembros y operaciones de sala
+                              </span>
                             )}
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
+                          </td>
+                          <td className="px-6 py-4 text-right">
+                            <div className="flex gap-3 justify-end">
+                              <button 
+                                onClick={() => {
+                                  setSelectedUserForPin(u.username);
+                                  setShowChangePin(true);
+                                }}
+                                className="text-indigo-600 hover:text-indigo-800 font-black text-xs uppercase px-2 py-1 rounded-lg hover:bg-indigo-50 transition-all cursor-pointer"
+                              >
+                                Cambiar PIN
+                              </button>
+                              {!isMainAdmin && (
+                                <button 
+                                  onClick={() => handleDeleteUser(u.username)}
+                                  className="text-rose-500 hover:text-rose-700 font-black text-xs uppercase px-2 py-1 rounded-lg hover:bg-rose-50 transition-all cursor-pointer"
+                                >
+                                  Eliminar
+                                </button>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
             </div>
           </div>
         )}
+
         {activeTab === 'personalized' && (
           <div className="space-y-6 lg:space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
             {/* Context Header */}
@@ -5813,7 +6108,7 @@ export default function App() {
                     type="text" 
                     required
                     className="w-full px-5 py-4 bg-slate-50 border border-slate-100 rounded-2xl focus:outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all font-bold"
-                    placeholder="Ej: jorge_coach"
+                    placeholder="Ej: Gus"
                     value={newUser.username}
                     onChange={(e) => setNewUser({ ...newUser, username: e.target.value })}
                   />
@@ -5828,36 +6123,54 @@ export default function App() {
                     className="w-full px-5 py-4 bg-slate-50 border border-slate-100 rounded-2xl focus:outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all font-mono text-2xl tracking-[1em] text-center"
                     placeholder="0000"
                     value={newUser.pin}
-                    onChange={(e) => setNewUser({ ...newUser, pin: e.target.value })}
+                    onChange={(e) => setNewUser({ ...newUser, pin: e.target.value.replace(/\D/g, '') })}
                   />
-                  <p className="text-[10px] text-slate-400 text-center">Debe ser de 4 dígitos</p>
+                  <p className="text-[10px] text-slate-400 text-center">Debe ser de 4 dígitos numéricos</p>
                 </div>
                 <div className="space-y-2">
-                  <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Rol</label>
+                  <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Rol y Nivel de Acceso</label>
                   <select 
-                    className="w-full px-5 py-4 bg-slate-50 border border-slate-100 rounded-2xl focus:outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all font-bold appearance-none"
+                    className="w-full px-5 py-4 bg-slate-50 border border-slate-100 rounded-2xl focus:outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all font-bold"
                     value={newUser.role}
                     onChange={(e) => setNewUser({ ...newUser, role: e.target.value })}
                   >
-                    <option value="Coach">Coach</option>
-                    <option value="Admin">Admin</option>
+                    <option value="Solo Pagos">Solo Pagos (Caja / Recepción)</option>
+                    <option value="Staff">Coach / Staff (Asistencias y sala)</option>
+                    <option value="Admin">Administrador (Acceso total)</option>
                   </select>
+                  <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-100 text-xs">
+                    {newUser.role === 'Solo Pagos' && (
+                      <p className="text-emerald-700 leading-relaxed font-medium">
+                        🛡️ <b>Restricción Activada:</b> Podrá cobrar cuotas y visitas, emitir tickets y consultar socios. <b>Sin acceso a ganancias, gastos, reportes ni usuarios.</b>
+                      </p>
+                    )}
+                    {newUser.role === 'Staff' && (
+                      <p className="text-slate-600 leading-relaxed font-medium">
+                        ⏱️ <b>Staff:</b> Podrá registrar asistencias (check-in), ver socios y alertas.
+                      </p>
+                    )}
+                    {newUser.role === 'Admin' && (
+                      <p className="text-indigo-600 leading-relaxed font-medium">
+                        👑 <b>Admin:</b> Acceso total administrativo y contable.
+                      </p>
+                    )}
+                  </div>
                 </div>
                 <div className="flex gap-3 pt-4">
                   <button 
                     type="button"
                     onClick={() => {
                       setShowAddUser(false);
-                      setNewUser({ username: '', pin: '', role: 'Coach' });
+                      setNewUser({ username: '', pin: '', role: 'Solo Pagos' });
                     }}
-                    className="flex-1 px-6 py-4 bg-slate-50 text-slate-600 rounded-2xl font-bold hover:bg-slate-100 transition-all"
+                    className="flex-1 px-6 py-4 bg-slate-50 text-slate-600 rounded-2xl font-bold hover:bg-slate-100 transition-all cursor-pointer"
                   >
                     Cancelar
                   </button>
                   <button 
                     type="submit"
                     disabled={isSubmitting}
-                    className={`flex-1 px-6 py-4 bg-slate-900 text-white rounded-2xl font-bold hover:bg-slate-800 transition-all shadow-lg shadow-slate-900/20 flex items-center justify-center gap-2 ${isSubmitting ? 'opacity-70 cursor-not-allowed' : ''}`}
+                    className={`flex-1 px-6 py-4 bg-slate-900 text-white rounded-2xl font-bold hover:bg-slate-800 transition-all shadow-lg shadow-slate-900/20 flex items-center justify-center gap-2 cursor-pointer ${isSubmitting ? 'opacity-70 cursor-not-allowed' : ''}`}
                   >
                     {isSubmitting ? (
                       <>
