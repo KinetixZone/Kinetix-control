@@ -282,6 +282,21 @@ export default function App() {
     }
   }, []);
 
+  // Strict Role Guard: Ensures Gus or non-admins can NEVER view the 'users' tab, financial dashboards, expenses, or reports
+  useEffect(() => {
+    if (isSoloPagos) {
+      const allowedTabsForSoloPagos = ['payments', 'members', 'attendance'];
+      if (!allowedTabsForSoloPagos.includes(activeTab)) {
+        setActiveTab('payments');
+      }
+    } else if (!isAdmin) {
+      const adminOnlyTabs = ['users', 'analytics', 'expenses', 'personalized', 'nutrition', 'inventory'];
+      if (adminOnlyTabs.includes(activeTab)) {
+        setActiveTab('members');
+      }
+    }
+  }, [isSoloPagos, isAdmin, activeTab]);
+
   useEffect(() => {
     if (isLoggedIn) {
       const channel = supabase
@@ -1877,12 +1892,9 @@ export default function App() {
             </button>
           </form>
 
-          <div className="mt-6 pt-4 border-t border-slate-100 space-y-2">
-            <div className="flex items-center justify-between text-xs text-slate-600 bg-slate-50 px-3 py-2 rounded-xl border border-slate-100">
-              <span className="font-medium">💡 Acceso Gus (Solo Pagos):</span>
-              <span className="font-mono font-bold text-indigo-600">PIN: 2025</span>
-            </div>
-            <p className="text-[10px] text-slate-400 text-center uppercase tracking-widest font-bold">Control de Pagos v2.0</p>
+          <div className="mt-6 pt-4 border-t border-slate-100 text-center space-y-1">
+            <p className="text-[10px] text-slate-400 uppercase tracking-widest font-black">Kinetix Functional Zone</p>
+            <p className="text-[9px] text-slate-400 font-medium">Acceso Seguro al Sistema</p>
           </div>
         </motion.div>
       </div>
@@ -1896,7 +1908,7 @@ export default function App() {
       {/* Mobile Header */}
       <div className="lg:hidden bg-white border-b border-slate-100 p-4 sticky top-0 z-30 flex justify-between items-center h-16 no-print">
         <button 
-          onClick={() => { setActiveTab('dashboard'); setIsMobileMenuOpen(false); }}
+          onClick={() => { setActiveTab(isSoloPagos ? 'payments' : 'dashboard'); setIsMobileMenuOpen(false); }}
           className="flex items-center gap-2 hover:opacity-80 transition-opacity"
         >
           <Logo size={18} />

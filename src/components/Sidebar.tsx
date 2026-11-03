@@ -66,7 +66,7 @@ export const Sidebar = ({
     `}>
       <div className="flex items-center justify-between mb-10">
         <button 
-          onClick={() => { setActiveTab('dashboard'); setIsMobileMenuOpen(false); }}
+          onClick={() => { setActiveTab(isSoloPagos ? 'payments' : 'dashboard'); setIsMobileMenuOpen(false); }}
           className="flex items-center gap-3 hover:opacity-80 transition-opacity"
         >
           <Logo size={24} />
